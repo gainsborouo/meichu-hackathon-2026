@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +24,16 @@ def campaign_period(item: dict[str, Any]) -> str | None:
     return start or end or None
 
 
+def parse_date(value: Any) -> date | None:
+    """ISO YYYY-MM-DD only; anything else stays NULL rather than being guessed."""
+    if not isinstance(value, str):
+        return None
+    try:
+        return date.fromisoformat(value.strip())
+    except ValueError:
+        return None
+
+
 def load_campaigns(path: Path = DEFAULT_CAMPAIGNS_PATH) -> list[dict[str, Any]]:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -32,7 +42,8 @@ async def import_campaigns(session: AsyncSession, items: list[dict[str, Any]]) -
     """Idempotent upsert of cards + sales. JSON `bank`/`card` map to bank_name/card_name;
     the campaign JSON has no separate conditions field, so `conditions` stays NULL and
     everything (including confidence, recurrence, dates) is kept in source_payload.
-    `reward_rules` is derived from the prose reward so /search has something to rank."""
+    `reward_rules` is derived from the prose reward so recommendations have structured facts.
+    `official_verified_at` is left untouched: a local JSON import verifies nothing."""
     now = datetime.now(UTC)
     created = updated = 0
     for item in items:
@@ -54,6 +65,8 @@ async def import_campaigns(session: AsyncSession, items: list[dict[str, Any]]) -
         sale.source_url = item.get("source_url")
         sale.evidence = item.get("evidence")
         sale.source_payload = item
+        sale.campaign_start = parse_date(item.get("campaign_start"))
+        sale.campaign_end = parse_date(item.get("campaign_end"))
         sale.reward_rules = extract_rules(item.get("reward"), register_url=item.get("register_url"))
         sale.fetched_at = now
     await session.flush()

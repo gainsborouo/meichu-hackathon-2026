@@ -51,25 +51,16 @@ async def client(session, monkeypatch):
 async def _connect(session):
     user = await upsert_user(session, google_uid="g", email="e@x.com")
     user.google_refresh_token = "refresh-token"
-    user.calendar_push_enabled = True
     await session.flush()
     return user
 
 
 async def test_status_reports_not_connected(client) -> None:
     body = (await client.get(f"{P}/me/calendar")).json()
-    assert body == {"connected": False, "calendar_push_enabled": False}
+    assert body == {"connected": False}
 
 
-async def test_event_requires_push_enabled(client) -> None:
-    r = await client.post(f"{P}/me/calendar/events", json=EVENT)
-    assert r.status_code == 403 and "PATCH /me" in r.json()["detail"]
-
-
-async def test_event_requires_a_connected_calendar(client, session) -> None:
-    user = await upsert_user(session, google_uid="g", email="e@x.com")
-    user.calendar_push_enabled = True
-    await session.flush()
+async def test_event_requires_a_connected_calendar(client) -> None:
     r = await client.post(f"{P}/me/calendar/events", json=EVENT)
     assert r.status_code == 409 and "connect" in r.json()["detail"].lower()
 
@@ -128,8 +119,9 @@ async def test_provider_failure_surfaces_as_502_and_stores_nothing(client, sessi
 async def test_delete_removes_locally_and_remotely_but_keeps_the_notification(client, session):
     await _connect(session)
     sale = (await session.scalars(select(Sale))).first()
-    event = (await client.post(f"{P}/me/calendar/events",
-                               json={**EVENT, "sale_id": sale.id})).json()["event"]
+    event = (
+        await client.post(f"{P}/me/calendar/events", json={**EVENT, "sale_id": sale.id})
+    ).json()["event"]
 
     assert (await client.delete(f"{P}/me/calendar/events/{event['id']}")).status_code == 204
     assert client.deleted == ["gcal-1"]
@@ -160,4 +152,23 @@ async def test_disconnect_clears_the_token(client, session) -> None:
     user = await _connect(session)
     assert (await client.delete(f"{P}/me/calendar/connect")).status_code == 204
     await session.refresh(user)
-    assert user.google_refresh_token is None and user.calendar_push_enabled is False
+    assert user.google_refresh_token is None
+
+
+async def test_connect_does_not_touch_registration_mode(client, session, monkeypatch) -> None:
+    user = await upsert_user(session, google_uid="g", email="e@x.com")
+    monkeypatch.setattr(route.google_calendar, "exchange_code", lambda code, uri: "new-refresh")
+    for flag in (False, True):
+        user.registration_campaigns_enabled = flag
+        await session.flush()
+        r = await client.post(f"{P}/me/calendar/connect", json={"code": "abc"})
+        assert r.status_code == 200 and r.json() == {"connected": True}
+        assert user.registration_campaigns_enabled is flag
+    assert user.google_refresh_token == "new-refresh"
+
+
+async def test_manual_event_works_regardless_of_registration_mode(client, session) -> None:
+    user = await _connect(session)
+    user.registration_campaigns_enabled = True
+    r = await client.post(f"{P}/me/calendar/events", json=EVENT)
+    assert r.status_code == 201

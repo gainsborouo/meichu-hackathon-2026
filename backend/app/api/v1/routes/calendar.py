@@ -31,11 +31,6 @@ router = APIRouter(prefix="/me/calendar")
 
 
 def _require_connection(user) -> str:
-    if not user.calendar_push_enabled:
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            "Calendar push is off. Enable it with PATCH /me first.",
-        )
     if not user.google_refresh_token:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -46,10 +41,7 @@ def _require_connection(user) -> str:
 
 @router.get("", response_model=CalendarStatus)
 async def calendar_status(user: CurrentUser) -> CalendarStatus:
-    return CalendarStatus(
-        connected=bool(user.google_refresh_token),
-        calendar_push_enabled=user.calendar_push_enabled,
-    )
+    return CalendarStatus(connected=bool(user.google_refresh_token))
 
 
 @router.post("/connect", response_model=CalendarStatus)
@@ -64,24 +56,19 @@ async def connect_calendar(
     """
     redirect_uri = body.redirect_uri or get_settings().google_oauth_redirect_uri
     try:
-        token = await asyncio.to_thread(
-            google_calendar.exchange_code, body.code, redirect_uri
-        )
+        token = await asyncio.to_thread(google_calendar.exchange_code, body.code, redirect_uri)
     except CalendarError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
     user.google_refresh_token = token
-    # Connecting is an explicit opt-in; turning the switch on here saves a round trip.
-    user.calendar_push_enabled = True
     await session.flush()
-    return CalendarStatus(connected=True, calendar_push_enabled=True)
+    return CalendarStatus(connected=True)
 
 
 @router.delete("/connect", status_code=status.HTTP_204_NO_CONTENT)
 async def disconnect_calendar(user: CurrentUser, session: SessionDep) -> None:
     """Forget the stored token. Events already in the calendar stay there."""
     user.google_refresh_token = None
-    user.calendar_push_enabled = False
     await session.flush()
 
 

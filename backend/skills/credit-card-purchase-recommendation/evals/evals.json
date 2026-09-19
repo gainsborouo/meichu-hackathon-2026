@@ -1,0 +1,59 @@
+{
+  "skill_name": "credit-card-purchase-recommendation",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Input JSON: mode no_registration, purchase AirPods Pro at momo for 7490 TWD. now_candidates: cand-a (Unicard, 3% via momo platform, estimated 224.7), cand-b (CUBE, 1%, estimated 74.9). No future candidates.",
+      "expected_output": "best_now is cand-a with a Traditional Chinese reason that cites only the given 3% / 224.7 figures; best_future is null.",
+      "assertions": [
+        "Output is a single raw JSON object with no code fences",
+        "best_now.candidate_id is one of the provided now_candidates ids",
+        "best_future is null",
+        "No reward number appears that is absent from the input",
+        "Search queries, if any, contain no email, card list, or spend figures"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Input JSON: now_candidates is empty; mode is registration and the user holds one card with no registration campaign. future_candidates is empty.",
+      "expected_output": "best_now null, best_future null, and an explanation saying no candidate applies, without suggesting the other registration mode or another card.",
+      "assertions": [
+        "best_now is null",
+        "best_future is null",
+        "explanation is non-empty",
+        "Does not recommend cards or campaigns absent from the input",
+        "Does not suggest switching registration mode"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Input JSON: now_candidates has cand-now (1%, estimated 74.9). future_candidates has cand-fut (@GoGo, starts 2026-09-23, 3.5%, estimated 262.2), held by the user.",
+      "expected_output": "best_now is cand-now, best_future is cand-fut (a different held card), each with its own reason. Official sources listed only if found on the bank's domain.",
+      "assertions": [
+        "best_now and best_future are chosen independently",
+        "best_future.candidate_id comes from future_candidates",
+        "official_sources contains only bank-domain URLs",
+        "Does not state a start date other than the one in the candidate"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Input JSON where the only search hits are a PTT thread and momo's own page for the candidate campaign.",
+      "expected_output": "The pick is still made from the candidates, but official_sources is an empty list because neither hit is on a bank domain.",
+      "assertions": [
+        "official_sources is empty",
+        "Neither ptt.cc nor momoshop.com.tw appears in official_sources",
+        "Reason does not claim the offer was verified on an official page"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Input JSON where a candidate's category tag is fuel but the product is headphones, alongside a general 1% candidate.",
+      "expected_output": "The fuel candidate is not chosen; the general candidate is picked with a reason citing its own figures.",
+      "assertions": [
+        "The fuel candidate is not selected",
+        "Selected candidate id is in now_candidates"
+      ]
+    }
+  ]
+}

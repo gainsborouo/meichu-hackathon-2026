@@ -12,12 +12,12 @@ class _ORM(BaseModel):
 class UserRead(_ORM):
     id: uuid.UUID
     email: str
-    calendar_push_enabled: bool
+    registration_campaigns_enabled: bool
     latest_spend_report: str | None
 
 
 class UserUpdate(BaseModel):
-    calendar_push_enabled: bool
+    registration_campaigns_enabled: bool
 
 
 class CardRead(_ORM):
@@ -81,56 +81,6 @@ class UserSaleRead(_ORM):
     notification_channel: str
 
 
-# --- search -------------------------------------------------------------
-
-
-class SearchRequest(BaseModel):
-    price: float = Field(gt=0, description="Purchase amount in `currency`.")
-    platform: str | None = Field(
-        default=None,
-        description='Where the purchase happens, e.g. "momo", "shopee", "foodpanda".',
-    )
-    category: str | None = Field(
-        default=None,
-        description='A category name ("dining") or the item itself ("除濕機").',
-    )
-    currency: str = "TWD"
-    include_unowned: bool = Field(
-        default=False,
-        description="Also rank cards the user does not hold, to surface what they are missing.",
-    )
-
-
-class EstimatedReward(BaseModel):
-    amount: float
-    rate: float | None
-    rate_max: float | None
-    currency: str
-    unit: str | None
-    capped: bool
-    requires_registration: bool
-    source_text: str | None
-
-
-class Recommendation(BaseModel):
-    user_card_id: uuid.UUID | None
-    owned: bool
-    card: CardRead
-    estimated_reward: EstimatedReward | None
-    matched_sales: list[SaleRead]
-    reason: str
-
-
-class SearchResponse(BaseModel):
-    query: SearchRequest
-    resolved_category: str | None = Field(
-        description="What `category` was understood as; null when it matched nothing known."
-    )
-    best: Recommendation | None
-    alternatives: list[Recommendation]
-    considered_card_count: int
-
-
 # --- calendar -----------------------------------------------------------
 
 
@@ -144,7 +94,6 @@ class CalendarConnect(BaseModel):
 
 class CalendarStatus(BaseModel):
     connected: bool
-    calendar_push_enabled: bool
 
 
 class CalendarEventCreate(BaseModel):

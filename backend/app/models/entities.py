@@ -27,7 +27,10 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     google_uid: Mapped[str] = mapped_column(sa.Text, unique=True)
     email: Mapped[str] = mapped_column(sa.Text, unique=True)
-    calendar_push_enabled: Mapped[bool] = mapped_column(default=False, server_default=sa.false())
+    # false: only campaigns needing no registration are recommended; true: only those that do.
+    registration_campaigns_enabled: Mapped[bool] = mapped_column(
+        default=False, server_default=sa.false()
+    )
     # Firebase sign-in does not grant the Calendar scope, so connecting a
     # calendar is a separate OAuth consent whose refresh token is kept here.
     google_refresh_token: Mapped[str | None] = mapped_column(sa.Text)
@@ -118,6 +121,11 @@ class Sale(Base):
     reward_rules: Mapped[list] = mapped_column(
         JSONType, default=list, server_default=sa.text("'[]'")
     )
+    # Parsed from the campaign's own dates; NULL when the source had none we could read.
+    campaign_start: Mapped[date | None] = mapped_column(sa.Date)
+    campaign_end: Mapped[date | None] = mapped_column(sa.Date)
+    # Set only by a check against the bank's official page, never by local import.
+    official_verified_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
     fetched_at: Mapped[datetime] = _ts()
     created_at: Mapped[datetime] = _ts()
     updated_at: Mapped[datetime] = _ts_updated()
