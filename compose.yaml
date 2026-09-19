@@ -4,6 +4,8 @@ services:
   backend:
     build:
       context: ./backend
+    ports:
+      - "8081:8000"
     env_file:
       - path: ./backend/.env
         required: false
@@ -14,6 +16,37 @@ services:
       LLM_BASE_URL: "${LLM_BASE_URL:-}"
       LLM_API_KEY: "${LLM_API_KEY:-}"
       LLM_MODEL: "${LLM_MODEL:-}"
+    # Dev setup: the source is bind-mounted over the copy baked into the image,
+    # so an edit on the host is live in the container and a rebuild is only
+    # needed when dependencies change. Read-only because nothing in the
+    # container should write to your working tree; the image sets
+    # PYTHONDONTWRITEBYTECODE, so no .pyc files are attempted either.
+    #
+    # An image built from this Dockerfile still contains the code and runs
+    # standalone -- these mounts only shadow it while developing.
+    volumes:
+      - ./backend/app:/app/app:ro
+      # The statement agent reads SKILL.md and its scripts at runtime, so mount
+      # them too or skill edits would need a rebuild to take effect.
+      - ./backend/skills:/app/skills:ro
+      # So a new migration can be applied with `compose exec` without a rebuild.
+      - ./backend/alembic:/app/alembic:ro
+    # The image CMD has no --reload (correct for a built image); dev wants it,
+    # and uvicorn[standard] ships watchfiles. Watching skills/ too because the
+    # skill's scripts are imported once at startup, so editing one needs a
+    # restart to take effect (SKILL.md itself is re-read per request).
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --reload
+      - --reload-dir
+      - /app/app
+      - --reload-dir
+      - /app/skills
     depends_on:
       postgres:
         condition: service_healthy
@@ -31,9 +64,9 @@ services:
     restart: unless-stopped
     develop:
       watch:
-        - action: sync+restart
-          path: ./backend/app
-          target: /app/app
+        # No sync action: the bind mount already puts the source in the
+        # container, and syncing on top of a mount would fight it. Dependency
+        # changes still need the image rebuilt.
         - action: rebuild
           path: ./backend/pyproject.toml
         - action: rebuild

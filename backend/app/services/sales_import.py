@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Sale
 from app.repositories.cards import get_or_create_card
+from app.services.reward_rules import extract_rules
 
 DEFAULT_CAMPAIGNS_PATH = (
     Path(__file__).resolve().parents[2]
@@ -30,7 +31,8 @@ def load_campaigns(path: Path = DEFAULT_CAMPAIGNS_PATH) -> list[dict[str, Any]]:
 async def import_campaigns(session: AsyncSession, items: list[dict[str, Any]]) -> dict[str, int]:
     """Idempotent upsert of cards + sales. JSON `bank`/`card` map to bank_name/card_name;
     the campaign JSON has no separate conditions field, so `conditions` stays NULL and
-    everything (including confidence, recurrence, dates) is kept in source_payload."""
+    everything (including confidence, recurrence, dates) is kept in source_payload.
+    `reward_rules` is derived from the prose reward so /search has something to rank."""
     now = datetime.now(UTC)
     created = updated = 0
     for item in items:
@@ -52,6 +54,7 @@ async def import_campaigns(session: AsyncSession, items: list[dict[str, Any]]) -
         sale.source_url = item.get("source_url")
         sale.evidence = item.get("evidence")
         sale.source_payload = item
+        sale.reward_rules = extract_rules(item.get("reward"), register_url=item.get("register_url"))
         sale.fetched_at = now
     await session.flush()
     return {"created": created, "updated": updated, "total": len(items)}
