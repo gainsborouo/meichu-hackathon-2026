@@ -1,14 +1,43 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { CircleCheck, FileText, FileUp, LoaderCircle, TriangleAlert } from '@lucide/vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
+import { CircleCheck, CircleX, FileText, FileUp, LoaderCircle, TriangleAlert } from '@lucide/vue'
+import MarkdownIt from 'markdown-it'
+import { storeToRefs } from 'pinia'
 import SiteHeader from '../components/SiteHeader.vue'
 import { api } from '../services/api'
+import { useAuthStore } from '../stores/authStore'
 
 type UploadState = 'idle' | 'uploading' | 'success' | 'error'
+type AnalysisState = 'idle' | 'loading' | 'error'
 
+const markdown = new MarkdownIt({ html: false, linkify: true })
+
+markdown.renderer.rules.link_open = (tokens, index, options, _env, renderer) => {
+  tokens[index]!.attrSet('target', '_blank')
+  tokens[index]!.attrSet('rel', 'noopener noreferrer')
+  return renderer.renderToken(tokens, index, options)
+}
+markdown.renderer.rules.image = (tokens, index) => markdown.utils.escapeHtml(tokens[index]!.content)
+
+const authStore = useAuthStore()
+const { ready: authReady, user: authUser } = storeToRefs(authStore)
 const selectedFiles = ref<File[]>([])
 const uploadState = ref<UploadState>('idle')
 const message = ref('')
+const analysisState = ref<AnalysisState>('idle')
+const analysisError = ref('')
+const analysisMarkdown = ref('')
+const analysisDialog = ref<HTMLDialogElement | null>(null)
+let analysisController: AbortController | null = null
+
+const analysisHtml = computed(() => markdown.render(analysisMarkdown.value))
+const analysisButtonLabel = computed(() => {
+  if (!authReady.value) return '確認登入狀態…'
+  if (!authUser.value) return '登入後查看'
+  return analysisState.value === 'loading' ? '載入中' : '我的帳單分析'
+})
+
+onBeforeUnmount(() => analysisController?.abort())
 
 function handleFileSelection(event: Event) {
   const input = event.target as HTMLInputElement
@@ -41,6 +70,38 @@ async function uploadStatement() {
     message.value = '上傳失敗，請稍後再試。'
   }
 }
+
+async function openAnalysis() {
+  if (!authReady.value || !authUser.value || analysisState.value === 'loading') return
+
+  const controller = new AbortController()
+  analysisController = controller
+  analysisState.value = 'loading'
+  analysisError.value = ''
+  analysisMarkdown.value = ''
+
+  try {
+    const response = await api.get<string>('/me/statements', { signal: controller.signal })
+
+    if (controller.signal.aborted) return
+    if (typeof response.data !== 'string') throw new TypeError('Expected a Markdown string')
+
+    analysisMarkdown.value = response.data
+    analysisState.value = 'idle'
+    analysisDialog.value?.showModal()
+  } catch {
+    if (controller.signal.aborted) return
+
+    analysisState.value = 'error'
+    analysisError.value = '無法取得帳單分析，請稍後再試。'
+  } finally {
+    if (analysisController === controller) analysisController = null
+  }
+}
+
+function closeAnalysis() {
+  analysisDialog.value?.close()
+}
 </script>
 
 <template>
@@ -52,6 +113,32 @@ async function uploadStatement() {
         <div>
           <h1>上傳帳單</h1>
           <p>選擇電子帳單檔案，送出後交由系統解析。</p>
+        </div>
+
+        <div class="analysis-entry">
+          <button
+            class="upload-submit analysis-trigger"
+            type="button"
+            :disabled="!authReady || !authUser || analysisState === 'loading'"
+            :aria-busy="analysisState === 'loading'"
+            @click="openAnalysis"
+          >
+            <LoaderCircle
+              v-if="analysisState === 'loading'"
+              class="analysis-trigger__spinner"
+              :size="19"
+              aria-hidden="true"
+            />
+            <FileText v-else :size="19" aria-hidden="true" />
+            {{ analysisButtonLabel }}
+          </button>
+          <p
+            v-if="analysisError"
+            class="upload-message upload-message--error analysis-entry__error"
+            role="alert"
+          >
+            {{ analysisError }}
+          </p>
         </div>
       </header>
 
@@ -128,6 +215,29 @@ async function uploadStatement() {
       </form>
     </main>
 
+    <dialog
+      ref="analysisDialog"
+      class="analysis-dialog"
+      aria-labelledby="analysis-dialog-title"
+      @cancel.prevent="closeAnalysis"
+      @click.self="closeAnalysis"
+    >
+      <div class="analysis-dialog__surface">
+        <header class="analysis-dialog__header">
+          <h2 id="analysis-dialog-title">帳單分析</h2>
+          <button type="button" aria-label="關閉帳單分析" autofocus @click="closeAnalysis">
+            <CircleX :size="22" aria-hidden="true" />
+          </button>
+        </header>
+
+        <div class="analysis-dialog__body">
+          <!-- Markdown 已停用原始 HTML，並限制圖片與危險連結。 -->
+          <div v-if="analysisMarkdown.trim()" class="analysis-markdown" v-html="analysisHtml"></div>
+          <p v-else class="analysis-empty">尚無統計數據，請先上傳帳單。</p>
+        </div>
+      </div>
+    </dialog>
+
     <footer class="page-footer">
       <div class="page-footer__meta">
         <span>信用卡推薦</span>
@@ -189,6 +299,18 @@ async function uploadStatement() {
   margin-block-start: var(--space-sm);
   color: var(--color-ink-2);
   line-height: 1.6;
+}
+
+.analysis-entry {
+  display: grid;
+  min-width: 0;
+  align-content: end;
+  justify-items: start;
+  gap: var(--space-xs);
+}
+
+.analysis-entry__error {
+  max-width: 30ch;
 }
 
 .upload-panel {
@@ -382,6 +504,183 @@ async function uploadStatement() {
   animation: upload-spin 1s linear infinite;
 }
 
+.analysis-trigger__spinner {
+  animation: upload-spin 1s linear infinite;
+}
+
+.analysis-dialog {
+  width: min(calc(100% - (var(--space-xl) * 2)), 64rem);
+  max-width: none;
+  max-height: min(85dvh, 52rem);
+  border: var(--rule-hairline) solid var(--color-rule-strong);
+  border-radius: var(--radius-panel);
+  padding: 0;
+  overflow: hidden;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  box-shadow: 0 1.5rem 4rem oklch(20% 0.016 260 / 0.24);
+}
+
+.analysis-dialog::backdrop {
+  background: oklch(20% 0.016 260 / 0.58);
+}
+
+.analysis-dialog__surface {
+  display: grid;
+  max-height: min(85dvh, 52rem);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.analysis-dialog__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  border-bottom: var(--rule-hairline) solid var(--color-rule);
+  padding: var(--space-lg) var(--space-xl);
+}
+
+.analysis-dialog__header h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  letter-spacing: -0.02em;
+}
+
+.analysis-dialog__header button {
+  display: inline-flex;
+  width: var(--control-height);
+  height: var(--control-height);
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-control);
+  outline: var(--rule-focus) solid transparent;
+  outline-offset: var(--rule-hairline);
+  padding: 0;
+  background: transparent;
+  color: var(--color-muted);
+}
+
+.analysis-dialog__header button:focus-visible {
+  outline-color: var(--color-focus);
+}
+
+.analysis-dialog__body {
+  min-height: 0;
+  padding: var(--space-xl);
+  overflow: auto;
+}
+
+.analysis-empty {
+  margin: 0;
+  color: var(--color-muted);
+  line-height: 1.6;
+}
+
+.analysis-markdown {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-ink-2);
+  line-height: 1.7;
+}
+
+.analysis-markdown :deep(:first-child) {
+  margin-block-start: 0;
+}
+
+.analysis-markdown :deep(:last-child) {
+  margin-block-end: 0;
+}
+
+.analysis-markdown :deep(h1),
+.analysis-markdown :deep(h2),
+.analysis-markdown :deep(h3),
+.analysis-markdown :deep(h4) {
+  margin-block: var(--space-xl) var(--space-sm);
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  line-height: 1.25;
+}
+
+.analysis-markdown :deep(h1) {
+  font-size: 1.75rem;
+}
+
+.analysis-markdown :deep(h2) {
+  font-size: var(--text-lg);
+}
+
+.analysis-markdown :deep(h3),
+.analysis-markdown :deep(h4) {
+  font-size: var(--text-md);
+}
+
+.analysis-markdown :deep(p),
+.analysis-markdown :deep(ul),
+.analysis-markdown :deep(ol),
+.analysis-markdown :deep(blockquote),
+.analysis-markdown :deep(pre),
+.analysis-markdown :deep(table) {
+  margin-block: 0 var(--space-lg);
+}
+
+.analysis-markdown :deep(ul),
+.analysis-markdown :deep(ol) {
+  padding-inline-start: var(--space-xl);
+}
+
+.analysis-markdown :deep(table) {
+  width: 100%;
+  min-width: 34rem;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.analysis-markdown :deep(th),
+.analysis-markdown :deep(td) {
+  border: var(--rule-hairline) solid var(--color-rule);
+  padding: var(--space-sm);
+  text-align: start;
+  vertical-align: top;
+}
+
+.analysis-markdown :deep(th) {
+  background: var(--color-paper-2);
+  color: var(--color-ink);
+}
+
+.analysis-markdown :deep(blockquote) {
+  border-inline-start: 0.2rem solid var(--color-accent-light);
+  padding-inline-start: var(--space-md);
+  color: var(--color-muted);
+}
+
+.analysis-markdown :deep(pre) {
+  border-radius: var(--radius-control);
+  padding: var(--space-md);
+  overflow: auto;
+  background: var(--color-graphite);
+  color: var(--color-graphite-ink);
+}
+
+.analysis-markdown :deep(code) {
+  font-family: var(--font-mono);
+}
+
+.analysis-markdown :deep(:not(pre) > code) {
+  border-radius: var(--radius-control);
+  padding: var(--space-3xs) var(--space-2xs);
+  background: var(--color-paper-2);
+}
+
+.analysis-markdown :deep(a) {
+  color: var(--color-accent);
+  text-decoration-thickness: var(--rule-hairline);
+  text-underline-offset: var(--space-3xs);
+}
+
 .page-footer {
   display: grid;
   gap: var(--space-xl);
@@ -407,6 +706,27 @@ async function uploadStatement() {
   .upload-submit:hover:not(:disabled) {
     background: var(--color-accent-hover);
   }
+
+  .analysis-dialog__header button:hover {
+    background: var(--color-paper-2);
+    color: var(--color-ink);
+  }
+}
+
+@media (max-width: 39.999rem) {
+  .analysis-dialog {
+    width: calc(100% - (var(--space-md) * 2));
+    max-height: calc(100dvh - (var(--space-md) * 2));
+  }
+
+  .analysis-dialog__surface {
+    max-height: calc(100dvh - (var(--space-md) * 2));
+  }
+
+  .analysis-dialog__header,
+  .analysis-dialog__body {
+    padding: var(--space-md);
+  }
 }
 
 @media (min-width: 40rem) {
@@ -424,6 +744,18 @@ async function uploadStatement() {
 @media (min-width: 60rem) {
   .upload-intro {
     grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.6fr);
+  }
+
+  .analysis-entry {
+    justify-items: end;
+  }
+
+  .analysis-trigger {
+    justify-self: end;
+  }
+
+  .analysis-entry__error {
+    text-align: end;
   }
 }
 
@@ -443,7 +775,8 @@ async function uploadStatement() {
     transform: none;
   }
 
-  .upload-submit__spinner {
+  .upload-submit__spinner,
+  .analysis-trigger__spinner {
     animation-duration: 1.8s;
   }
 }
