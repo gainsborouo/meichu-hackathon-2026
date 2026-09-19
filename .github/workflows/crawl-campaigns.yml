@@ -1,0 +1,47 @@
+name: Crawl Credit Card Campaigns
+
+on:
+  schedule:
+    # 19:00 UTC = 03:00 Asia/Taipei
+    - cron: "0 19 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: crawl-campaigns
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.13"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - run: uv sync --frozen --no-dev
+      - name: Run crawler
+        run: uv run python skills/credit_card_campaigns/news.py
+        env:
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add skills/credit_card_campaigns/credit_card_campaigns.json
+          if git diff --cached --quiet; then
+            echo "No changes in campaigns."
+            exit 0
+          fi
+          git commit -m "chore(rules): daily campaign crawl $(date -u +%F)"
+          git push
