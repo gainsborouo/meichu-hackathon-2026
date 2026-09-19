@@ -4,6 +4,7 @@ import uuid
 
 import pytest
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -17,9 +18,7 @@ from app.models import Card
 from app.services.card_catalog import import_card_catalog, load_card_catalog
 
 ADMIN_URL = os.getenv("TEST_POSTGRES_ADMIN_URL")
-pytestmark = pytest.mark.skipif(
-    not ADMIN_URL, reason="TEST_POSTGRES_ADMIN_URL is not configured"
-)
+pytestmark = pytest.mark.skipif(not ADMIN_URL, reason="TEST_POSTGRES_ADMIN_URL is not configured")
 
 
 async def test_postgres_bootstrap_catalog_and_downgrade(monkeypatch) -> None:
@@ -37,7 +36,9 @@ async def test_postgres_bootstrap_catalog_and_downgrade(monkeypatch) -> None:
         async with target_engine.connect() as connection:
             assert await connection.scalar(text("SELECT count(*) FROM cards")) == 94
             revision = await connection.scalar(text("SELECT version_num FROM alembic_version"))
-            assert revision == "0003"
+            assert (
+                revision == ScriptDirectory.from_config(Config(str(ALEMBIC_INI))).get_current_head()
+            )
 
         session_factory = async_sessionmaker(target_engine, expire_on_commit=False)
         async with session_factory() as session:

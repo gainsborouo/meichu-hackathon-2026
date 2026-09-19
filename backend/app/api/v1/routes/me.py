@@ -29,7 +29,7 @@ async def read_me(user: CurrentUser) -> UserRead:
 
 @router.patch("", response_model=UserRead)
 async def update_me(body: UserUpdate, user: CurrentUser, session: SessionDep) -> UserRead:
-    user.calendar_push_enabled = body.calendar_push_enabled
+    user.registration_campaigns_enabled = body.registration_campaigns_enabled
     await session.flush()
     return UserRead.model_validate(user)
 

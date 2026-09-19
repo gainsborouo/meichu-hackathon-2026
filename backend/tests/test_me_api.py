@@ -57,9 +57,9 @@ async def test_card_analysis_and_sales_flow(client, session) -> None:
     user = await upsert_user(session, google_uid="g", email="e@x.com")
     await record_sale_notification(session, user.id, sale["id"])
     assert len((await client.get(f"{p}/me/sales")).json()) == 1
-    assert (await client.patch(f"{p}/me", json={"calendar_push_enabled": True})).json()[
-        "calendar_push_enabled"
-    ] is True
+    assert (await client.get(f"{p}/me")).json()["registration_campaigns_enabled"] is False
+    r = await client.patch(f"{p}/me", json={"registration_campaigns_enabled": True})
+    assert r.json()["registration_campaigns_enabled"] is True
 
 
 async def test_me_requires_auth(client) -> None:
