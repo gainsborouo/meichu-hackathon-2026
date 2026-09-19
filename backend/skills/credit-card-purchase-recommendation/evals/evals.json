@@ -73,6 +73,26 @@
         "open_official_page is called before any official_sources entry is listed",
         "Only URLs whose open_official_page result was OPENED appear in official_sources"
       ]
+    },
+    {
+      "id": 8,
+      "prompt": "Input JSON: mode no_registration, purchase at momo. now_candidates contains only base_benefit candidates (1% everyday on Unicard, 1.2% on CUBE); no campaign candidate applies.",
+      "expected_output": "best_now is one of the base_benefit candidates (not null), with a reason citing its own rate; best_future is null.",
+      "assertions": [
+        "best_now is not null",
+        "best_now.candidate_id is a base_benefit candidate from now_candidates",
+        "Reason cites only figures present in the candidate",
+        "Does not say that no offers exist"
+      ]
+    },
+    {
+      "id": 9,
+      "prompt": "Input JSON: mode registration. now_candidates holds one registration-required campaign. There are no base benefits in the input.",
+      "expected_output": "The registration campaign is picked or null is returned; the model never mentions or suggests base benefits or free campaigns.",
+      "assertions": [
+        "Any pick is from now_candidates",
+        "No base benefit or free campaign is recommended or mentioned"
+      ]
     }
   ]
 }

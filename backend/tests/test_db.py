@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.models import Card, Sale, User, UserAnalysis
@@ -43,6 +43,12 @@ def test_migration_renders_postgres_sql() -> None:
         "registration_campaigns_enabled",
         "campaign_start",
         "official_verified_at",
+        "CREATE TABLE card_benefits",
+        "uq_cards_catalog_key",
+        "search_bank_name",
+        "ctbc-linepay",
+        "ck_card_benefits_valid_range",
+        "uq_card_benefits_card_id",
         "google_refresh_token",
         "ON DELETE SET NULL",
         "artwork_id",
@@ -60,16 +66,28 @@ async def test_upsert_user_is_idempotent_and_syncs_email(session) -> None:
     assert a.id == b.id and b.email == "new@x.com" and b.registration_campaigns_enabled is False
 
 
-async def test_sales_import_is_repeatable_and_keeps_payload(session) -> None:
+async def test_sales_import_is_repeatable_and_keeps_payload(session, catalog) -> None:
+    from app.services.card_identity import resolve_source_card_key
+    from app.services.sales_import import source_names
+
     items = load_campaigns()
+    resolvable = [i for i in items if resolve_source_card_key(*source_names(i))]
+    assert resolvable and len(resolvable) < len(items), "legacy data mixes known and unknown cards"
+
+    cards_before = await session.scalar(select(func.count()).select_from(Card))
     first = await import_campaigns(session, items)
     second = await import_campaigns(session, items)
-    assert first == {"created": len(items), "updated": 0, "total": len(items)}
-    assert second["created"] == 0 and second["updated"] == len(items)
-    sale = await session.get(Sale, items[0]["id"])
-    assert sale.source_payload == items[0]
-    assert sale.bank_name == items[0]["bank"] and sale.card_id is not None
-    assert len((await session.scalars(select(Card))).all()) <= len(items)
+    assert first == {
+        "created": len(resolvable),
+        "updated": 0,
+        "skipped": len(items) - len(resolvable),
+        "total": len(items),
+    }
+    assert second["created"] == 0 and second["updated"] == len(resolvable)
+    sale = await session.get(Sale, resolvable[0]["id"])
+    assert sale.source_payload == resolvable[0]
+    assert sale.card_id is not None
+    assert await session.scalar(select(func.count()).select_from(Card)) == cards_before
 
 
 async def test_analysis_month_normalised_and_check_constraint(session) -> None:
@@ -110,7 +128,7 @@ async def test_spend_report_uses_latest_three_months_and_keeps_history(session) 
     assert len(await analyses_repo.list_for_user_card(session, uc.id)) == 3
 
 
-async def test_user_sale_unique_and_user_card_idempotent(session) -> None:
+async def test_user_sale_unique_and_user_card_idempotent(session, catalog) -> None:
     await import_campaigns(session, load_campaigns()[:2])
     user = await upsert_user(session, google_uid="g", email="e@x.com")
     sale = (await sales_repo.list_sales(session))[0]
@@ -122,7 +140,7 @@ async def test_user_sale_unique_and_user_card_idempotent(session) -> None:
     assert isinstance(await session.get(User, user.id), User)
 
 
-async def test_import_fills_campaign_dates_and_leaves_verification_null(session) -> None:
+async def test_import_fills_campaign_dates_and_leaves_verification_null(session, catalog) -> None:
     from datetime import date
 
     from app.services.sales_import import parse_date
@@ -196,3 +214,12 @@ def test_migration_0004_backfills_dates_from_source_payload() -> None:
     assert got["only-end"] == (None, date(2026, 6, 30))
     assert got["bad"] == (None, None) and got["none"] == (None, None)
     assert got["not-a-dict"] == (None, None)
+
+
+def test_alembic_has_a_single_head_and_card_identity_chains_from_0005() -> None:
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    script = ScriptDirectory.from_config(Config(str(BACKEND / "alembic.ini")))
+    assert script.get_heads() == ["0006"]
+    assert script.get_revision("0006").down_revision == "0005"

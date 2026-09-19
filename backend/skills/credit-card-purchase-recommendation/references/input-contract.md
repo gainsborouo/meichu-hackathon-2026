@@ -21,10 +21,12 @@ bank, campaign, or official-source titles.
 
 Strict and mutually exclusive.
 
-- `no_registration`: every candidate is a campaign that needs **no** registration.
-- `registration`: every candidate is a campaign that **requires** registration.
+- `no_registration`: candidates are the held cards' effective **base benefits** plus
+  campaigns that need **no** registration.
+- `registration`: candidates are **only** campaigns that **require** registration. Base
+  benefits and free campaigns are deliberately absent.
 
-There is no fallback between modes. Never mention the other kind of campaign.
+There is no fallback between modes. Never mention what the other mode would have shown.
 
 ## Candidate
 
@@ -33,9 +35,12 @@ One candidate is one reward rule of one campaign for one held card.
 | Field | Meaning |
 |---|---|
 | `candidate_id` | The only handle you may select by. |
+| `candidate_type` | `"base_benefit"` (a card's standing reward) or `"campaign"` (limited-time offer). |
+| `benefit_id` | Set for base benefits; null for campaigns. |
 | `card` | `{id, bank_name, name, artwork_id}` of a held card. |
-| `sale_id`, `title` | The campaign. |
-| `campaign_start`, `campaign_end` | ISO dates or null. Null means the source gave none. |
+| `sale_id`, `title` | The campaign (`sale_id` is null for a base benefit); `title` names the base benefit too. |
+| `campaign_start`, `campaign_end` | Campaigns: ISO dates or null (null = the source gave none). Always null for base benefits. |
+| `effective_start`, `effective_end` | Base benefits: ISO dates or null. A null `effective_end` means no end date is published, not "ends today". Always null for campaigns. |
 | `is_future` | True when `campaign_start` is after today. |
 | `rate`, `rate_display` | Reward rate used for the estimate, e.g. `0.03` / `"3%"`. |
 | `rate_max_display` | The headline "up to" rate, if different. Marketing figure, not the estimate. |

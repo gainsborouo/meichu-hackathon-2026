@@ -35,8 +35,11 @@ interface OfficialSource {
 }
 
 interface BestNow {
+  // "base_benefit": the card's standing reward; "campaign": a limited-time offer.
+  candidate_type: 'base_benefit' | 'campaign'
   card: CardRef
-  sale_id: string
+  sale_id: string | null
+  benefit_id: string | null
   campaign_title: string
   estimated_reward_twd: number
   rate_display: string
@@ -687,6 +690,13 @@ onBeforeUnmount(() => {
               <div class="card-identity">
                 <div class="card-badges">
                   <span class="best-badge">{{ t('recommendations.bestNow') }}</span>
+                  <span class="type-badge" data-testid="candidate-type">
+                    {{
+                      searchResult.best_now.candidate_type === 'base_benefit'
+                        ? t('recommendations.typeBaseBenefit')
+                        : t('recommendations.typeCampaign')
+                    }}
+                  </span>
                   <span
                     class="verification-badge"
                     :class="`verification-badge--${searchResult.best_now.verification_status}`"
@@ -763,6 +773,7 @@ onBeforeUnmount(() => {
               </div>
 
               <button
+                v-if="searchResult.best_now.sale_id"
                 class="purchase-button"
                 type="button"
                 data-testid="record-purchase-best-now"
@@ -1208,6 +1219,7 @@ onBeforeUnmount(() => {
 }
 
 .card-badges .best-badge,
+.card-badges .type-badge,
 .card-badges .verification-badge--verified {
   border-color: var(--color-accent);
   color: var(--color-accent);

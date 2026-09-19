@@ -173,7 +173,7 @@ def _make_web_search(screen: dict[str, Any]):
         if problem:
             return f"Search refused: {problem}."
         try:
-            from duckduckgo_search import DDGS
+            from ddgs import DDGS
 
             with DDGS() as ddgs:
                 results = list(ddgs.text(query, max_results=5))

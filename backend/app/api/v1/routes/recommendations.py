@@ -2,16 +2,18 @@
 
 It never creates a Calendar event, never calls the Calendar service and never writes
 user_sales; `wait_suggestion.calendar_draft` is a proposal the client may submit to
-POST /me/calendar/events after the user confirms. Its one write is stamping
-`sales.official_verified_at` when a pick is backed by an allow-listed official URL.
+POST /me/calendar/events after the user confirms.
 
-Live search verifies and supplements campaigns already in `sales`; it does not add new
-ones. The latest campaigns come from the crawler + `import_sales`.
+Writes: stamping `official_verified_at` when a pick is backed by an official page the
+backend opened, and (only when there is no current candidate) caching the result of a live
+official lookup for the user's held cards into card_benefits / sales. That lookup never
+creates a Card and never runs when a candidate already exists.
 """
 
 import json
 import logging
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
@@ -19,6 +21,7 @@ from fastapi.responses import StreamingResponse
 
 from app.api.deps import CurrentUser, SessionDep
 from app.schemas.recommendations import RecommendationRequest
+from app.services import live_refresh
 from app.services import purchase_recommendation as service
 from app.services.recommendation_agent import get_recommendation_agent
 
@@ -26,6 +29,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/recommendations")
 
 AgentDep = Annotated[service.RecommendationAgent, Depends(get_recommendation_agent)]
+LookupDep = Annotated[live_refresh.LiveLookup, Depends(live_refresh.get_live_lookup)]
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -34,16 +38,23 @@ def _sse(event: str, data: dict[str, Any]) -> str:
 
 @router.post("/stream")
 async def stream_recommendation(
-    body: RecommendationRequest, user: CurrentUser, session: SessionDep, agent: AgentDep
+    body: RecommendationRequest,
+    user: CurrentUser,
+    session: SessionDep,
+    agent: AgentDep,
+    lookup: LookupDep,
 ) -> StreamingResponse:
     # Reads happen here, before streaming starts. Commit now so the connection goes
     # back to the pool instead of sitting idle-in-transaction for the whole model run
     # (up to two minutes). The generator reuses the session only to stamp
     # official_verified_at, and commits that itself.
     pre = await service.preprocess(session, user, body)
+    # Only when nothing current is on file do we look the user's own cards up live.
+    targets = [] if pre.now_candidates else await live_refresh.lookup_targets(session, user.id)
     await session.commit()
 
     async def events() -> AsyncIterator[str]:
+        nonlocal pre
         yield _sse(
             "searching",
             {
@@ -53,11 +64,34 @@ async def stream_recommendation(
                 "future_candidates": len(pre.future_candidates),
             },
         )
+        if targets:
+            yield _sse("searching", {"stage": "live_card_lookup", "cards": len(targets)})
+            try:
+                now = datetime.now(UTC)
+                results = await live_refresh.run_lookup(targets, lookup, today=pre.today, now=now)
+                await live_refresh.persist_results(session, results, now=now)
+                refreshed = await service.preprocess(session, user, body, today=pre.today)
+                await session.commit()
+                refreshed.lookup_attempted = True
+                pre = refreshed
+                yield _sse(
+                    "searching",
+                    {
+                        "stage": "reprocessing",
+                        "now_candidates": len(pre.now_candidates),
+                        "future_candidates": len(pre.future_candidates),
+                    },
+                )
+            except Exception:
+                # A lookup problem must never turn into a 500: fall back to what we had.
+                logger.exception("live card lookup failed")
+                await session.rollback()
+                pre.lookup_attempted = True
         try:
             if pre.has_candidates:
                 yield _sse("searching", {"stage": "official_verification"})
             result, verified = await service.recommend(pre, agent)
-            await service.mark_verified(session, verified)
+            await service.mark_verified(session, verified.sale_ids, verified.benefit_ids)
         except service.RecommendationError as exc:
             yield _sse("error", {"message": str(exc)})
             return

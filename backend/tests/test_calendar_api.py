@@ -19,7 +19,7 @@ EVENT = {"title": "買除濕機", "starts_at": "2026-10-01T10:00:00+08:00"}
 
 
 @pytest_asyncio.fixture
-async def client(session, monkeypatch):
+async def client(session, catalog, monkeypatch):
     app = create_app()
     created: list[dict] = []
     deleted: list[str] = []

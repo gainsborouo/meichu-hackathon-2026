@@ -140,6 +140,8 @@ export default {
     results: 'Recommendation',
     rankingTitle: 'Best Card Right Now',
     bestNow: 'Best Now',
+    typeBaseBenefit: 'Base benefit',
+    typeCampaign: 'Limited-time campaign',
     verified: 'Verified with an official source',
     unverified: 'Official source not verified',
     estimatedReward: 'Estimated Reward',

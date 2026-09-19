@@ -33,8 +33,10 @@ const waitCard = {
 const recommendation = {
   mode: 'no_registration',
   best_now: {
+    candidate_type: 'campaign',
     card: bestNowCard,
     sale_id: 'esun-unicard-2026',
+    benefit_id: null,
     campaign_title: '指定網購加碼',
     estimated_reward_twd: 224.7,
     rate_display: '3%',
@@ -406,6 +408,32 @@ describe('RecommendationsView', () => {
 
     expect(wrapper.find('[role="status"]').exists()).toBe(false)
     expect(newButton.attributes('data-state')).toBe('idle')
+  })
+
+  it('labels a limited-time campaign and a base benefit differently', async () => {
+    const first = await mountRecommendations()
+    expect(first.wrapper.get('[data-testid="candidate-type"]').text()).toBe('限時活動')
+
+    const baseBenefit = {
+      ...recommendation,
+      best_now: {
+        ...recommendation.best_now,
+        candidate_type: 'base_benefit',
+        sale_id: null,
+        benefit_id: 'benefit-1',
+        campaign_title: '國內一般消費',
+        rate_display: '1%',
+      },
+      wait_suggestion: null,
+    }
+    fetchMock.mockResolvedValue(
+      okResponse(chunked(sse('recommendation', baseBenefit) + sse('done', {}))),
+    )
+    const second = await mountRecommendations()
+    const best = second.wrapper.get('[data-testid="best-now"]')
+    expect(best.get('[data-testid="candidate-type"]').text()).toBe('基本回饋')
+    expect(best.text()).toContain('國內一般消費')
+    expect(best.text()).toContain('1%')
   })
 
   it('offers a registration link and unverified status when the backend says so', async () => {

@@ -19,6 +19,7 @@ adds new campaigns: the candidate set comes only from the crawler + import_sales
 from __future__ import annotations
 
 import json
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta, timezone
@@ -27,10 +28,12 @@ from typing import Any
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Sale, User
+from app.models import CardBenefit, Sale, User
 from app.repositories import analyses as analyses_repo
+from app.repositories import benefits as benefits_repo
 from app.repositories import cards as cards_repo
 from app.repositories import sales as sales_repo
+from app.repositories.benefits import is_effective
 from app.schemas.recommendations import (
     BestNow,
     CalendarDraft,
@@ -64,6 +67,8 @@ class Preprocessed:
     future_candidates: list[dict[str, Any]]
     spend_context: dict[str, Any]
     excluded: dict[str, int] = field(default_factory=dict)
+    # True once a live official lookup ran for this request and still found nothing usable.
+    lookup_attempted: bool = False
 
     @property
     def has_candidates(self) -> bool:
@@ -153,6 +158,94 @@ def _spend_context(user: User, analyses: list, card_names: dict) -> dict[str, An
     return {"latest_spend_report": user.latest_spend_report, "recent_analyses": recent}
 
 
+def _usable_rules(
+    rules: list[dict[str, Any]],
+    request: RecommendationRequest,
+    registration_mode: bool,
+    excluded: dict[str, int],
+):
+    """Yield (index, rule, platforms, platform_match, min_spend, reward, cap_applied) for
+    each rule that passes the hard gates. Shared by campaigns and base benefits so both
+    are held to identical registration / platform / threshold rules."""
+    for index, rule in enumerate(rules or []):
+        if rule.get("rate") is None:
+            continue
+        if bool(rule.get("requires_registration")) != registration_mode:
+            excluded["registration_mode"] += 1
+            continue
+        if rule.get("scope") == "overseas":
+            excluded["overseas_only"] += 1
+            continue
+        platforms = rule.get("platforms") or []
+        platform_match = bool(platforms) and _store_matches(request.store_name, platforms)
+        if platforms and not platform_match:
+            excluded["other_platform"] += 1
+            continue
+        min_spend = rule.get("min_spend")
+        if min_spend is not None and request.price < min_spend:
+            excluded["below_min_spend"] += 1
+            continue
+        reward, cap_applied = _estimate(request.price, rule)
+        yield index, rule, platforms, platform_match, min_spend, reward, cap_applied
+
+
+def _candidate(
+    *,
+    candidate_id: str,
+    candidate_type: str,
+    card: dict[str, Any],
+    title: str,
+    rule: dict[str, Any],
+    platforms: list[str],
+    platform_match: bool,
+    min_spend: Any,
+    reward: float,
+    cap_applied: bool,
+    locale: str,
+    source_url: str | None,
+    verified_at: datetime | None,
+    sale_id: str | None = None,
+    benefit_id: str | None = None,
+    campaign_start: date | None = None,
+    campaign_end: date | None = None,
+    effective_start: date | None = None,
+    effective_end: date | None = None,
+    is_future: bool = False,
+    registration_url: str | None = None,
+) -> dict[str, Any]:
+    iso = lambda d: d.isoformat() if d else None  # noqa: E731
+    return {
+        "candidate_id": candidate_id,
+        "candidate_type": candidate_type,
+        "card": card,
+        "sale_id": sale_id,
+        "benefit_id": benefit_id,
+        "title": title,
+        "campaign_start": iso(campaign_start),
+        "campaign_end": iso(campaign_end),
+        "effective_start": iso(effective_start),
+        "effective_end": iso(effective_end),
+        "is_future": is_future,
+        "rate": rule["rate"],
+        "rate_display": _fmt_rate(rule["rate"]),
+        "rate_max_display": _fmt_rate(rule["rate_max"])
+        if rule.get("rate_max") and rule["rate_max"] != rule["rate"]
+        else None,
+        "cap_description": _cap_description(rule, locale),
+        "cap_applied": cap_applied,
+        "min_spend": min_spend,
+        "estimated_reward_twd": reward,
+        "requires_registration": bool(rule.get("requires_registration")),
+        "registration_url": registration_url if rule.get("requires_registration") else None,
+        "conditions": rule.get("source_text"),
+        "categories": rule.get("categories") or [],
+        "platforms": platforms,
+        "platform_match": platform_match,
+        "source_url": source_url,
+        "official_verified_at": iso(verified_at),
+    }
+
+
 def build_candidates(
     *,
     sales: list[Sale],
@@ -160,8 +253,16 @@ def build_candidates(
     registration_mode: bool,
     today: date,
     card_refs: dict[Any, dict[str, Any]],
+    benefits: list[CardBenefit] | None = None,
 ) -> tuple[list[dict], list[dict], dict[str, int]]:
-    """Hard filters + reward math. No ordering by reward, by design."""
+    """Hard filters + reward math. No ordering by reward, by design.
+
+    Candidate sets by mode:
+      registration_mode False: effective base benefits + effective campaigns that need no
+        registration.
+      registration_mode True:  only effective campaigns that need registration. Base
+        benefits (and free campaigns) are never used as a fallback here.
+    """
     now: list[dict] = []
     future: list[dict] = []
     excluded = {
@@ -170,7 +271,40 @@ def build_candidates(
         "below_min_spend": 0,
         "other_platform": 0,
         "overseas_only": 0,
+        "base_benefit_registration_mode": 0,
+        "base_benefit_not_effective": 0,
     }
+
+    for benefit in sorted(benefits or [], key=lambda b: (str(b.card_id), b.title)):
+        if registration_mode:
+            excluded["base_benefit_registration_mode"] += 1
+            continue
+        if not is_effective(benefit, today) or benefit.card_id not in card_refs:
+            excluded["base_benefit_not_effective"] += 1
+            continue
+        for index, rule, platforms, platform_match, min_spend, reward, cap in _usable_rules(
+            benefit.reward_rules, request, registration_mode, excluded
+        ):
+            now.append(
+                _candidate(
+                    candidate_id=f"benefit:{benefit.id}#{index}",
+                    candidate_type="base_benefit",
+                    card=card_refs[benefit.card_id],
+                    title=benefit.title,
+                    rule=rule,
+                    platforms=platforms,
+                    platform_match=platform_match,
+                    min_spend=min_spend,
+                    reward=reward,
+                    cap_applied=cap,
+                    locale=request.locale,
+                    source_url=benefit.source_url,
+                    verified_at=benefit.official_verified_at,
+                    benefit_id=str(benefit.id),
+                    effective_start=benefit.effective_start,
+                    effective_end=benefit.effective_end,
+                )
+            )
 
     for sale in sorted(sales, key=lambda s: (s.bank_name, s.card_name, s.id)):
         start, end = sale.campaign_start, sale.campaign_end
@@ -182,56 +316,29 @@ def build_candidates(
             excluded["expired"] += 1
             continue
 
-        for index, rule in enumerate(sale.reward_rules or []):
-            if rule.get("rate") is None:
-                continue
-            if bool(rule.get("requires_registration")) != registration_mode:
-                excluded["registration_mode"] += 1
-                continue
-            if rule.get("scope") == "overseas":
-                excluded["overseas_only"] += 1
-                continue
-            platforms = rule.get("platforms") or []
-            platform_match = bool(platforms) and _store_matches(request.store_name, platforms)
-            if platforms and not platform_match:
-                excluded["other_platform"] += 1
-                continue
-            min_spend = rule.get("min_spend")
-            if min_spend is not None and request.price < min_spend:
-                excluded["below_min_spend"] += 1
-                continue
-
-            reward, cap_applied = _estimate(request.price, rule)
-            candidate = {
-                "candidate_id": f"{sale.id}#{index}",
-                "card": card_refs[sale.card_id],
-                "sale_id": sale.id,
-                "title": sale.title,
-                "campaign_start": start.isoformat() if start else None,
-                "campaign_end": end.isoformat() if end else None,
-                "is_future": is_future,
-                "rate": rule["rate"],
-                "rate_display": _fmt_rate(rule["rate"]),
-                "rate_max_display": _fmt_rate(rule["rate_max"])
-                if rule.get("rate_max") and rule["rate_max"] != rule["rate"]
-                else None,
-                "cap_description": _cap_description(rule, request.locale),
-                "cap_applied": cap_applied,
-                "min_spend": min_spend,
-                "estimated_reward_twd": reward,
-                "requires_registration": bool(rule.get("requires_registration")),
-                "registration_url": sale.register_url
-                if rule.get("requires_registration")
-                else None,
-                "conditions": rule.get("source_text"),
-                "categories": rule.get("categories") or [],
-                "platforms": platforms,
-                "platform_match": platform_match,
-                "source_url": sale.source_url,
-                "official_verified_at": sale.official_verified_at.isoformat()
-                if sale.official_verified_at
-                else None,
-            }
+        for index, rule, platforms, platform_match, min_spend, reward, cap in _usable_rules(
+            sale.reward_rules, request, registration_mode, excluded
+        ):
+            candidate = _candidate(
+                candidate_id=f"{sale.id}#{index}",
+                candidate_type="campaign",
+                card=card_refs[sale.card_id],
+                title=sale.title,
+                rule=rule,
+                platforms=platforms,
+                platform_match=platform_match,
+                min_spend=min_spend,
+                reward=reward,
+                cap_applied=cap,
+                locale=request.locale,
+                source_url=sale.source_url,
+                verified_at=sale.official_verified_at,
+                sale_id=sale.id,
+                campaign_start=start,
+                campaign_end=end,
+                is_future=is_future,
+                registration_url=sale.register_url,
+            )
             (future if is_future else now).append(candidate)
 
     return now, future, excluded
@@ -250,6 +357,11 @@ async def preprocess(
     card_names = {uc.id: uc.card.name for uc in user_cards}
 
     sales = await sales_repo.list_sales_for_user_cards(session, user.id) if user_cards else []
+    benefits = (
+        await benefits_repo.list_effective_for_user_cards(session, user.id, today)
+        if user_cards
+        else []
+    )
     analyses = await analyses_repo.latest_months_for_user(session, user.id, months=3)
 
     registration_mode = bool(user.registration_campaigns_enabled)
@@ -259,6 +371,7 @@ async def preprocess(
         registration_mode=registration_mode,
         today=today,
         card_refs=card_refs,
+        benefits=benefits,
     )
     return Preprocessed(
         mode="registration" if registration_mode else "no_registration",
@@ -399,8 +512,13 @@ def empty_explanation(pre: Preprocessed) -> str:
         return f"None of your cards has a valid offer for this purchase that {kind}."
     if not pre.held_cards:
         return "尚未加入任何持有的信用卡，無法推薦。"
-    kind = "需登錄" if pre.mode == "registration" else "免登錄"
-    return f"目前持有的卡片中，沒有符合此購物條件且屬「{kind}」的有效優惠。"
+    if pre.mode == "registration":
+        text = "目前持有的卡片中，沒有符合此購物條件且需登錄的有效優惠。"
+    else:
+        text = "目前持有的卡片中，沒有符合此購物條件的有效基本回饋或免登錄優惠。"
+    if pre.lookup_attempted:
+        text += "已嘗試即時查詢銀行官方網站，仍找不到可驗證的資料。"
+    return text
 
 
 def assemble(pre: Preprocessed, raw: dict[str, Any]) -> RecommendationResponse:
@@ -418,8 +536,10 @@ def assemble(pre: Preprocessed, raw: dict[str, Any]) -> RecommendationResponse:
         cand, model_raw = now_pick
         sources = _verified_sources(cand, model_raw, opened)
         best_now = BestNow(
+            candidate_type=cand["candidate_type"],
             card=CardRef(**cand["card"]),
             sale_id=cand["sale_id"],
+            benefit_id=cand["benefit_id"],
             campaign_title=cand["title"],
             estimated_reward_twd=cand["estimated_reward_twd"],
             rate_display=cand["rate_display"],
@@ -443,8 +563,15 @@ def assemble(pre: Preprocessed, raw: dict[str, Any]) -> RecommendationResponse:
     )
 
 
-def verified_sale_ids(pre: Preprocessed, raw: dict[str, Any]) -> list[str]:
-    """Sales whose pick was backed by at least one allow-listed official URL."""
+@dataclass
+class Verified:
+    """Rows whose pick was backed by an official page the backend opened."""
+
+    sale_ids: list[str] = field(default_factory=list)
+    benefit_ids: list[str] = field(default_factory=list)
+
+
+def verified_targets(pre: Preprocessed, raw: dict[str, Any]) -> Verified:
     picks = (
         _pick(raw.get("best_now"), {c["candidate_id"]: c for c in pre.now_candidates}, "best_now"),
         _pick(
@@ -454,33 +581,53 @@ def verified_sale_ids(pre: Preprocessed, raw: dict[str, Any]) -> list[str]:
         ),
     )
     opened = _opened(raw)
-    ids: list[str] = []
+    out = Verified()
     for pick in picks:
-        if pick is not None and _verified_sources(*pick, opened) and pick[0]["sale_id"] not in ids:
-            ids.append(pick[0]["sale_id"])
-    return ids
+        if pick is None or not _verified_sources(*pick, opened):
+            continue
+        cand = pick[0]
+        if cand["candidate_type"] == "base_benefit":
+            if cand["benefit_id"] not in out.benefit_ids:
+                out.benefit_ids.append(cand["benefit_id"])
+        elif cand["sale_id"] not in out.sale_ids:
+            out.sale_ids.append(cand["sale_id"])
+    return out
+
+
+def verified_sale_ids(pre: Preprocessed, raw: dict[str, Any]) -> list[str]:
+    return verified_targets(pre, raw).sale_ids
 
 
 async def mark_verified(
-    session: AsyncSession, sale_ids: list[str], *, at: datetime | None = None
+    session: AsyncSession,
+    sale_ids: list[str],
+    benefit_ids: list[str] | None = None,
+    *,
+    at: datetime | None = None,
 ) -> None:
     """Stamp official_verified_at. Only ever called with ids that passed the allow-list."""
-    if not sale_ids:
+    if not sale_ids and not benefit_ids:
         return
-    await session.execute(
-        update(Sale)
-        .where(Sale.id.in_(sale_ids))
-        .values(official_verified_at=at or datetime.now(UTC))
-    )
+    stamp = at or datetime.now(UTC)
+    if sale_ids:
+        await session.execute(
+            update(Sale).where(Sale.id.in_(sale_ids)).values(official_verified_at=stamp)
+        )
+    if benefit_ids:
+        await session.execute(
+            update(CardBenefit)
+            .where(CardBenefit.id.in_([uuid.UUID(b) for b in benefit_ids]))
+            .values(official_verified_at=stamp)
+        )
     await session.commit()
 
 
 async def recommend(
     pre: Preprocessed, agent: RecommendationAgent
-) -> tuple[RecommendationResponse, list[str]]:
+) -> tuple[RecommendationResponse, Verified]:
     """Run the model only when there is something to choose from.
 
-    Returns the response and the ids of sales that were officially verified.
+    Returns the response and which rows were officially verified.
     """
     if not pre.has_candidates:
         empty = RecommendationResponse(
@@ -489,19 +636,21 @@ async def recommend(
             wait_suggestion=None,
             explanation=empty_explanation(pre),
         )
-        return empty, []
+        return empty, Verified()
     raw = await agent(pre.model_payload())
     response = assemble(pre, raw)
-    return response, verified_sale_ids(pre, raw)
+    return response, verified_targets(pre, raw)
 
 
 __all__ = [
     "Preprocessed",
+    "Verified",
     "RecommendationAgent",
     "RecommendationError",
     "assemble",
     "mark_verified",
     "verified_sale_ids",
+    "verified_targets",
     "build_candidates",
     "preprocess",
     "recommend",
