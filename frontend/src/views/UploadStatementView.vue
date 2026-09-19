@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { CircleCheck, FileText, FileUp, LoaderCircle, TriangleAlert } from '@lucide/vue'
 import SiteHeader from '../components/SiteHeader.vue'
+import { api } from '../services/api'
 
 type UploadState = 'idle' | 'uploading' | 'success' | 'error'
 
@@ -32,12 +33,7 @@ async function uploadStatement() {
       selectedFiles.value.map(async (file) => {
         const formData = new FormData()
         formData.append('file', file)
-        const response = await fetch('/api/v1/mine/e-statement', {
-          method: 'POST',
-          body: formData,
-        })
-
-        if (!response.ok) throw new Error('Upload failed')
+        await api.post('/mine/e-statement', formData)
       }),
     )
 

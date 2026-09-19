@@ -15,3 +15,9 @@ const app = initializeApp(firebaseConfig)
 export const auth = getAuth(app)
 export const googleProvider = new GoogleAuthProvider()
 googleProvider.addScope('https://www.googleapis.com/auth/calendar.events')
+
+export async function getCurrentUserIdToken(): Promise<string | null> {
+  await auth.authStateReady()
+
+  return auth.currentUser?.getIdToken() ?? null
+}

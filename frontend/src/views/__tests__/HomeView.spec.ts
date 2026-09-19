@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { flushPromises, mount } from '@vue/test-utils'
+import type { User } from 'firebase/auth'
+import { createPinia } from 'pinia'
+import { useAuthStore } from '../../stores/authStore'
 import HomeView from '../HomeView.vue'
 
 type MockAuthUser = {
@@ -11,11 +14,9 @@ type MockAuthUser = {
 
 const authMocks = vi.hoisted(() => ({
   auth: {},
-  currentUser: null as unknown,
   googleProvider: {},
   signInWithPopup: vi.fn<(auth: unknown, provider: unknown) => Promise<unknown>>(),
   signOut: vi.fn<(auth: unknown) => Promise<void>>(),
-  unsubscribe: vi.fn<() => void>(),
 }))
 
 vi.mock('@/firebase', () => ({
@@ -24,24 +25,25 @@ vi.mock('@/firebase', () => ({
 }))
 
 vi.mock('firebase/auth', () => ({
-  onAuthStateChanged: vi.fn<(auth: unknown, onUser: (user: unknown) => void) => () => void>(
-    (_auth, onUser) => {
-      onUser(authMocks.currentUser)
-      return authMocks.unsubscribe
-    },
-  ),
   signInWithPopup: authMocks.signInWithPopup,
   signOut: authMocks.signOut,
 }))
 
 function mountHome(user: MockAuthUser | null = null) {
-  authMocks.currentUser = user
-  return mount(HomeView)
+  const pinia = createPinia()
+  const authStore = useAuthStore(pinia)
+  authStore.user = user as User | null
+  authStore.ready = true
+
+  return mount(HomeView, {
+    global: {
+      plugins: [pinia],
+    },
+  })
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
-  authMocks.currentUser = null
   authMocks.signInWithPopup.mockResolvedValue({})
   authMocks.signOut.mockResolvedValue(undefined)
 })

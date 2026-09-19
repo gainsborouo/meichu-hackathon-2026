@@ -13,6 +13,7 @@ import {
 
 import SiteHeader from '../components/SiteHeader.vue'
 import { creditCardArtworkCatalog, type CreditCardArtwork } from '../data/creditCardArtwork'
+import { api } from '../services/api'
 
 type CardRequestMethod = 'POST' | 'DELETE'
 
@@ -103,15 +104,13 @@ async function updateOwnedCard(method: CardRequestMethod, card: CreditCardArtwor
   announcement.value = ''
 
   try {
-    const response = await fetch('/api/v1/mine/cards', {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify([{ issuer: card.issuer, name: card.cardName }]),
-    })
+    const cards = [{ issuer: card.issuer, name: card.cardName }]
 
-    if (!response.ok) throw new Error('Card request failed')
+    if (method === 'POST') {
+      await api.post('/mine/cards', cards)
+    } else {
+      await api.delete('/mine/cards', { data: cards })
+    }
 
     if (method === 'POST') {
       ownedCards.value = [...ownedCards.value, card]

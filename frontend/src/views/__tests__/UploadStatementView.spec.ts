@@ -1,9 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { flushPromises, mount } from '@vue/test-utils'
 import UploadStatementView from '../UploadStatementView.vue'
 
-const fetchMock = vi.fn<typeof fetch>()
+const apiMocks = vi.hoisted(() => ({
+  post: vi.fn<(url: string, data?: unknown) => Promise<unknown>>(),
+}))
+
+vi.mock('@/services/api', () => ({ api: apiMocks }))
 
 function mountUploadStatement() {
   return mount(UploadStatementView, {
@@ -16,12 +20,7 @@ function mountUploadStatement() {
 }
 
 beforeEach(() => {
-  fetchMock.mockReset()
-  vi.stubGlobal('fetch', fetchMock)
-})
-
-afterEach(() => {
-  vi.unstubAllGlobals()
+  apiMocks.post.mockReset()
 })
 
 describe('UploadStatementView', () => {
@@ -35,7 +34,7 @@ describe('UploadStatementView', () => {
   })
 
   it('uploads every selected file as multipart form data', async () => {
-    fetchMock.mockResolvedValue({ ok: true } as Response)
+    apiMocks.post.mockResolvedValue({})
     const wrapper = mountUploadStatement()
     const input = wrapper.get<HTMLInputElement>('#statement-file')
     const files = [
@@ -52,22 +51,21 @@ describe('UploadStatementView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('first.pdf、second.pdf')
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(apiMocks.post).toHaveBeenCalledTimes(2)
     expect(
-      fetchMock.mock.calls.map(([url, request]) => ({
+      apiMocks.post.mock.calls.map(([url, body]) => ({
         url,
-        method: request!.method,
-        file: (request!.body as FormData).get('file'),
+        file: (body as FormData).get('file'),
       })),
     ).toEqual([
-      { url: '/api/v1/mine/e-statement', method: 'POST', file: files[0] },
-      { url: '/api/v1/mine/e-statement', method: 'POST', file: files[1] },
+      { url: '/mine/e-statement', file: files[0] },
+      { url: '/mine/e-statement', file: files[1] },
     ])
     expect(wrapper.get('[role="status"]').text()).toBe('已上傳 2 份帳單。')
   })
 
   it('shows an error when the upload request fails', async () => {
-    fetchMock.mockResolvedValue({ ok: false } as Response)
+    apiMocks.post.mockRejectedValue(new Error('Request failed'))
     const wrapper = mountUploadStatement()
     const input = wrapper.get<HTMLInputElement>('#statement-file')
     const file = new File(['statement'], 'statement.pdf', { type: 'application/pdf' })

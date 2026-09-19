@@ -1,10 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { flushPromises, mount } from '@vue/test-utils'
 import { creditCardArtworkCatalog } from '../../data/creditCardArtwork'
 import CardManagementView from '../CardManagementView.vue'
 
-const fetchMock = vi.fn<typeof fetch>()
+const apiMocks = vi.hoisted(() => ({
+  delete: vi.fn<(url: string, config?: unknown) => Promise<unknown>>(),
+  post: vi.fn<(url: string, data?: unknown) => Promise<unknown>>(),
+}))
+
+vi.mock('@/services/api', () => ({ api: apiMocks }))
+
 const firstCard = creditCardArtworkCatalog[0]!
 
 function mountCardManagement() {
@@ -18,12 +24,8 @@ function mountCardManagement() {
 }
 
 beforeEach(() => {
-  fetchMock.mockReset()
-  vi.stubGlobal('fetch', fetchMock)
-})
-
-afterEach(() => {
-  vi.unstubAllGlobals()
+  apiMocks.delete.mockReset()
+  apiMocks.post.mockReset()
 })
 
 describe('CardManagementView', () => {
@@ -42,25 +44,22 @@ describe('CardManagementView', () => {
   })
 
   it('adds a card after the API accepts the request', async () => {
-    fetchMock.mockResolvedValue({ ok: true } as Response)
+    apiMocks.post.mockResolvedValue({})
     const wrapper = mountCardManagement()
 
     await wrapper.get('.catalogue-card__action').trigger('click')
     await flushPromises()
 
-    expect(fetchMock).toHaveBeenCalledExactlyOnceWith('/api/v1/mine/cards', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify([{ issuer: firstCard.issuer, name: firstCard.cardName }]),
-    })
+    expect(apiMocks.post).toHaveBeenCalledExactlyOnceWith('/mine/cards', [
+      { issuer: firstCard.issuer, name: firstCard.cardName },
+    ])
     expect(wrapper.get('.wallet-card').text()).toContain(firstCard.cardName)
     expect(wrapper.get('.catalogue-card__action').attributes('data-state')).toBe('success')
   })
 
   it('removes a card after the API accepts the request', async () => {
-    fetchMock.mockResolvedValue({ ok: true } as Response)
+    apiMocks.post.mockResolvedValue({})
+    apiMocks.delete.mockResolvedValue({})
     const wrapper = mountCardManagement()
 
     await wrapper.get('.catalogue-card__action').trigger('click')
@@ -68,19 +67,15 @@ describe('CardManagementView', () => {
     await wrapper.get('.wallet-remove').trigger('click')
     await flushPromises()
 
-    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/mine/cards', {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify([{ issuer: firstCard.issuer, name: firstCard.cardName }]),
+    expect(apiMocks.delete).toHaveBeenCalledExactlyOnceWith('/mine/cards', {
+      data: [{ issuer: firstCard.issuer, name: firstCard.cardName }],
     })
     expect(wrapper.find('.wallet-card').exists()).toBe(false)
     expect(wrapper.get('.wallet-empty').text()).toContain('尚未加入信用卡')
   })
 
   it('keeps the wallet unchanged when the backend rejects an add request', async () => {
-    fetchMock.mockResolvedValue({ ok: false } as Response)
+    apiMocks.post.mockRejectedValue(new Error('Request failed'))
     const wrapper = mountCardManagement()
 
     await wrapper.get('.catalogue-card__action').trigger('click')
@@ -92,9 +87,8 @@ describe('CardManagementView', () => {
   })
 
   it('keeps a card in the wallet when the backend rejects its removal', async () => {
-    fetchMock
-      .mockResolvedValueOnce({ ok: true } as Response)
-      .mockResolvedValueOnce({ ok: false } as Response)
+    apiMocks.post.mockResolvedValue({})
+    apiMocks.delete.mockRejectedValue(new Error('Request failed'))
     const wrapper = mountCardManagement()
 
     await wrapper.get('.catalogue-card__action').trigger('click')

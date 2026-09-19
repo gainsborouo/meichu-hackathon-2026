@@ -1,16 +1,18 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { CircleUserRound, CreditCard, FileUp, LogOut, WalletCards } from '@lucide/vue'
-import { onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth'
+import { signInWithPopup, signOut } from 'firebase/auth'
+import { storeToRefs } from 'pinia'
 
 import { auth, googleProvider } from '@/firebase'
+import { useAuthStore } from '@/stores/authStore'
 
 defineProps<{
   current: 'home' | 'upload-statement' | 'card-management'
 }>()
 
-const authUser = ref<User | null>(null)
-const authReady = ref(false)
+const authStore = useAuthStore()
+const { user: authUser, ready: authReady } = storeToRefs(authStore)
 const authBusy = ref(false)
 const authError = ref('')
 const avatarFailed = ref(false)
@@ -20,20 +22,9 @@ const authUserName = computed(
 )
 const showAvatar = computed(() => Boolean(authUser.value?.photoURL) && !avatarFailed.value)
 
-const unsubscribeFromAuth = onAuthStateChanged(
-  auth,
-  (user) => {
-    authUser.value = user
-    authReady.value = true
-    avatarFailed.value = false
-  },
-  () => {
-    authReady.value = true
-    authError.value = '無法確認登入狀態，請重新整理頁面。'
-  },
-)
-
-onUnmounted(unsubscribeFromAuth)
+watch(authUser, () => {
+  avatarFailed.value = false
+})
 
 function authErrorCode(error: unknown) {
   return typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : ''
