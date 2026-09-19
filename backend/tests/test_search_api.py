@@ -135,3 +135,21 @@ async def test_include_unowned_surfaces_cards_the_user_lacks(client) -> None:
     assert body["considered_card_count"] > 0
     assert all(row["owned"] is False for row in [body["best"], *body["alternatives"]])
     assert body["best"]["user_card_id"] is None
+
+
+async def test_include_unowned_keeps_owned_cards_but_excludes_unowned_cards_without_sales(
+    client, session
+) -> None:
+    user = await upsert_user(session, google_uid="g", email="e@x.com")
+    owned = await cards_repo.get_or_create_card(session, bank_name="自有銀行", name="無活動自有卡")
+    unowned = await cards_repo.get_or_create_card(
+        session, bank_name="其他銀行", name="無活動未持有卡"
+    )
+    await cards_repo.add_user_card(session, user.id, owned.id)
+
+    body = (
+        await client.post(f"{P}/search", json={"price": 100, "include_unowned": True})
+    ).json()
+    card_ids = {row["card"]["id"] for row in [body["best"], *body["alternatives"]]}
+    assert str(owned.id) in card_ids
+    assert str(unowned.id) not in card_ids

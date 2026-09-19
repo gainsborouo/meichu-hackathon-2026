@@ -12,7 +12,6 @@ import {
 } from '@lucide/vue'
 
 import SiteHeader from '../components/SiteHeader.vue'
-import { creditCardArtworkCatalog, type CreditCardArtwork } from '../data/creditCardArtwork'
 import { api } from '../services/api'
 
 type CardRequestMethod = 'POST' | 'DELETE'
@@ -26,6 +25,14 @@ interface ApiCard {
   id: string
   bank_name: string | null
   name: string
+  artwork_id: string | null
+  display_name: string | null
+  issuer_en: string | null
+  variant: string | null
+  network: string | null
+  tier: string | null
+  official_image_url: string | null
+  image_is_composite: boolean | null
 }
 
 interface UserCard {
@@ -34,18 +41,10 @@ interface UserCard {
   created_at: string
 }
 
-interface DisplayCard extends ApiCard {
-  artwork?: CreditCardArtwork
-}
-
-interface DisplayUserCard extends Omit<UserCard, 'card'> {
-  card: DisplayCard
-}
-
 const resultLimit = 24
 const searchQuery = ref('')
-const catalogCards = ref<DisplayCard[]>([])
-const ownedCards = ref<DisplayUserCard[]>([])
+const catalogCards = ref<ApiCard[]>([])
+const ownedCards = ref<UserCard[]>([])
 const isLoading = ref(true)
 const loadError = ref('')
 const pendingAction = ref<CardAction | null>(null)
@@ -53,49 +52,6 @@ const failedAction = ref<CardAction | null>(null)
 const actionError = ref('')
 const announcement = ref('')
 const failedImageIds = ref(new Set<string>())
-
-function artworkKey(card: Pick<CreditCardArtwork, 'issuer' | 'cardName'>) {
-  return `${card.issuer}\u0000${card.cardName}`
-}
-
-const seenCardKeys = new Set<string>()
-const artworkCards = creditCardArtworkCatalog.filter((card) => {
-  const key = artworkKey(card)
-
-  if (seenCardKeys.has(key)) return false
-
-  seenCardKeys.add(key)
-  return true
-})
-
-function normalizeBankName(name: string | null) {
-  return (name ?? '').toLocaleLowerCase('zh-TW').replace(/商業|銀行|股份|有限公司|\s/g, '')
-}
-
-function normalizeCardName(name: string) {
-  return name
-    .toLocaleLowerCase('zh-TW')
-    .replace(/信用卡|聯名卡|簽帳金融卡|卡/g, '')
-    .replace(/[^\p{L}\p{N}]/gu, '')
-}
-
-function findArtwork(card: ApiCard) {
-  const bankName = normalizeBankName(card.bank_name)
-  const cardName = normalizeCardName(card.name)
-
-  if (!bankName || !cardName) return undefined
-
-  return artworkCards.find((artwork) => {
-    if (normalizeBankName(artwork.issuer) !== bankName) return false
-
-    const artworkName = normalizeCardName(artwork.cardName)
-    return artworkName.includes(cardName) || cardName.includes(artworkName)
-  })
-}
-
-function toDisplayCard(card: ApiCard): DisplayCard {
-  return { ...card, artwork: findArtwork(card) }
-}
 
 const ownedCardIds = computed(() => new Set(ownedCards.value.map(({ card }) => card.id)))
 
@@ -108,10 +64,10 @@ const filteredCards = computed(() => {
     [
       card.bank_name,
       card.name,
-      card.artwork?.issuerEn,
-      card.artwork?.variant,
-      card.artwork?.network,
-      card.artwork?.tier,
+      card.issuer_en,
+      card.variant,
+      card.network,
+      card.tier,
     ]
       .filter(Boolean)
       .join(' ')
@@ -122,7 +78,7 @@ const filteredCards = computed(() => {
 
 const displayedCards = computed(() => filteredCards.value.slice(0, resultLimit))
 
-function isOwned(card: DisplayCard) {
+function isOwned(card: ApiCard) {
   return ownedCardIds.value.has(card.id)
 }
 
@@ -134,14 +90,14 @@ function isFailed(key: string, method: CardRequestMethod) {
   return failedAction.value?.key === key && failedAction.value.method === method
 }
 
-function addButtonState(card: DisplayCard) {
+function addButtonState(card: ApiCard) {
   if (isPending(card.id, 'POST')) return 'loading'
   if (isOwned(card)) return 'success'
   if (isFailed(card.id, 'POST')) return 'error'
   return 'idle'
 }
 
-function removeButtonState(userCard: DisplayUserCard) {
+function removeButtonState(userCard: UserCard) {
   if (isPending(userCard.id, 'DELETE')) return 'loading'
   if (isFailed(userCard.id, 'DELETE')) return 'error'
   return 'idle'
@@ -153,7 +109,7 @@ function markImageFailed(cardId: string) {
   failedImageIds.value = nextIds
 }
 
-async function addCard(card: DisplayCard) {
+async function addCard(card: ApiCard) {
   if (pendingAction.value || isOwned(card)) return
 
   pendingAction.value = { key: card.id, method: 'POST' }
@@ -163,10 +119,7 @@ async function addCard(card: DisplayCard) {
 
   try {
     const response = await api.post<UserCard>('/me/cards', { card_id: card.id })
-    ownedCards.value = [
-      ...ownedCards.value,
-      { ...response.data, card: toDisplayCard(response.data.card) },
-    ]
+    ownedCards.value = [...ownedCards.value, response.data]
     announcement.value = `已將「${card.name}」加入卡包。`
   } catch {
     failedAction.value = { key: card.id, method: 'POST' }
@@ -176,7 +129,7 @@ async function addCard(card: DisplayCard) {
   }
 }
 
-async function removeCard(userCard: DisplayUserCard) {
+async function removeCard(userCard: UserCard) {
   if (pendingAction.value) return
 
   pendingAction.value = { key: userCard.id, method: 'DELETE' }
@@ -203,11 +156,8 @@ onMounted(async () => {
       api.get<UserCard[]>('/me/cards'),
     ])
 
-    catalogCards.value = catalogResponse.data.map(toDisplayCard)
-    ownedCards.value = ownedResponse.data.map((userCard) => ({
-      ...userCard,
-      card: toDisplayCard(userCard.card),
-    }))
+    catalogCards.value = catalogResponse.data
+    ownedCards.value = ownedResponse.data
   } catch {
     loadError.value = '無法讀取卡片資料，請稍後再試。'
   } finally {
@@ -264,12 +214,14 @@ onMounted(async () => {
             <article v-for="userCard in ownedCards" :key="userCard.id" class="wallet-card">
               <div class="wallet-card__media">
                 <img
-                  v-if="userCard.card.artwork && !failedImageIds.has(userCard.card.artwork.id)"
-                  :src="`/card-art/${userCard.card.artwork.id}.webp`"
+                  v-if="
+                    userCard.card.artwork_id && !failedImageIds.has(userCard.card.artwork_id)
+                  "
+                  :src="`/card-art/${userCard.card.artwork_id}.webp`"
                   :alt="`${userCard.card.bank_name ?? ''}${userCard.card.name}卡面`"
                   width="640"
                   height="400"
-                  @error="markImageFailed(userCard.card.artwork.id)"
+                  @error="markImageFailed(userCard.card.artwork_id)"
                 />
                 <div v-else class="card-art-fallback">
                   <CreditCard :size="36" :stroke-width="1.5" aria-hidden="true" />
@@ -359,13 +311,13 @@ onMounted(async () => {
           <article v-for="card in displayedCards" :key="card.id" class="catalogue-card">
             <div class="catalogue-card__image">
               <img
-                v-if="card.artwork && !failedImageIds.has(card.artwork.id)"
-                :src="`/card-art/${card.artwork.id}.webp`"
+                v-if="card.artwork_id && !failedImageIds.has(card.artwork_id)"
+                :src="`/card-art/${card.artwork_id}.webp`"
                 :alt="`${card.bank_name ?? ''}${card.name}卡面`"
                 width="640"
                 height="400"
                 loading="lazy"
-                @error="markImageFailed(card.artwork.id)"
+                @error="markImageFailed(card.artwork_id)"
               />
               <div v-else class="card-art-fallback">
                 <CreditCard :size="36" :stroke-width="1.5" aria-hidden="true" />

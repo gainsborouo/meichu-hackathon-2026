@@ -1,0 +1,95 @@
+artwork_id,bank_name,name,display_name,issuer_en,variant,network,tier,official_image_url,image_is_composite
+ctbc-linepay-ve8710,中國信託銀行,中國信託 LINE Pay 信用卡,中國信託銀行｜中國信託 LINE Pay 信用卡（VE8710）,CTBC Bank,VE8710,VISA,Signature,https://www.ctbcbank.com/content/dam/twrbo/images/creditcard/images/N2025032800031_01/7.png,false
+mega-one,兆豐銀行,Mega One 一卡通聯名卡,兆豐銀行｜Mega One 一卡通聯名卡,Mega International Commercial Bank,,,,https://www.megabank.com.tw/-/media/mega/images/bankv2/personal/credit-card/card/credit-card-detail/520x520/03_mega-one.png?h=520&iar=0&w=520,false
+mega-happy,兆豐銀行,e 秒 Happy 悠遊聯名卡,兆豐銀行｜e 秒 Happy 悠遊聯名卡,Mega International Commercial Bank,,,,https://www.megabank.com.tw/-/media/mega/images/bankv2/personal/credit-card/card/credit-card-detail/520x520/20_happy.png?h=520&iar=0&w=520,false
+mega-eyoung,兆豐銀行,e 秒刷悠遊/一卡通聯名卡,兆豐銀行｜e 秒刷悠遊/一卡通聯名卡,Mega International Commercial Bank,,,,https://www.megabank.com.tw/-/media/mega/images/bankv2/personal/credit-card/card/credit-card-detail/520x520/01_eyoung.png?h=520&iar=0&w=520,true
+mega-world,兆豐銀行,兆豐世界卡,兆豐銀行｜兆豐世界卡,Mega International Commercial Bank,,,,https://www.megabank.com.tw/-/media/mega/images/bankv2/personal/credit-card/card/credit-card-detail/520x520/08_world-card.png?h=520&iar=0&w=520,false
+mega-infinite,兆豐銀行,兆豐無限卡,兆豐銀行｜兆豐無限卡,Mega International Commercial Bank,,,,https://www.megabank.com.tw/-/media/mega/images/bankv2/personal/credit-card/card/credit-card-detail/520x520/22_infinitev2.png?h=520&iar=0&w=520,false
+mega-cash-rebate,兆豐銀行,利多御璽卡,兆豐銀行｜利多御璽卡,Mega International Commercial Bank,,,,https://www.megabank.com.tw/-/media/mega/images/bankv2/personal/credit-card/card/credit-card-detail/520x520/06_cash-rebate-biz.png?h=520&iar=0&w=520,false
+mega-nextbank,兆豐銀行,將來銀行聯名卡,兆豐銀行｜將來銀行聯名卡,Mega International Commercial Bank,,,,https://www.megabank.com.tw/-/media/mega/images/bankv2/personal/credit-card/card/credit-card-detail/520x520/05_nextbank.png?h=520&iar=0&w=520,false
+mega-unilions,兆豐銀行,統一 7-ELEVEN 獅聯名卡,兆豐銀行｜統一 7-ELEVEN 獅聯名卡,Mega International Commercial Bank,,,,https://www.megabank.com.tw/-/media/mega/images/bankv2/personal/credit-card/card/credit-card-detail/520x520/46_unilions.png?h=520&iar=0&w=520,true
+mega-dual-currency,兆豐銀行,雙幣鈦金商旅卡,兆豐銀行｜雙幣鈦金商旅卡,Mega International Commercial Bank,,,,https://www.megabank.com.tw/-/media/mega/images/bankv2/personal/credit-card/card/credit-card-detail/520x520/14_dual-currency.png?h=520&iar=0&w=520,true
+fubon-momo,台北富邦銀行,momo 卡,台北富邦銀行｜momo 卡,Taipei Fubon Bank,,,,https://www.fubon.com/banking/images/personal/credit_card/TW/momo2026new.gif,false
+fubon-open-possible,台北富邦銀行,台灣大哥大 Open Possible 聯名卡,台北富邦銀行｜台灣大哥大 Open Possible 聯名卡,Taipei Fubon Bank,,,,https://www.fubon.com/banking/images/personal/credit_card/TW/OP_200-x-200-02.png,false
+fubon-taimall,台北富邦銀行,台茂聯名卡,台北富邦銀行｜台茂聯名卡,Taipei Fubon Bank,,,,https://www.fubon.com/banking/images/personal/credit_card/TW/%E5%8F%B0%E8%8C%82.png,false
+fubon-life,台北富邦銀行,富利生活系列卡,台北富邦銀行｜富利生活系列卡,Taipei Fubon Bank,,,,https://www.fubon.com/banking/images/personal/credit_card/TW/%E5%AF%8C%E5%88%A9_MT.png,false
+fubon-costco,台北富邦銀行,富邦 Costco 聯名卡,台北富邦銀行｜富邦 Costco 聯名卡,Taipei Fubon Bank,,,,https://www.fubon.com/banking/images/personal/credit_card/TW/C%E5%8D%A1%E5%8D%A1%E9%9D%A2.png,false
+fubon-imperial,台北富邦銀行,富邦 IMPERIAL 尊御世界卡,台北富邦銀行｜富邦 IMPERIAL 尊御世界卡,Taipei Fubon Bank,,,,https://www.fubon.com/banking/images/personal/credit_card/TW/%E5%B0%8A%E5%BE%A1%E5%8D%A1_MW.png,false
+fubon-j,台北富邦銀行,富邦 J 卡,台北富邦銀行｜富邦 J 卡,Taipei Fubon Bank,,,,https://www.fubon.com/banking/images/personal/credit_card/TW/J%E5%8D%A1.gif,false
+fubon-diamond-insurance,台北富邦銀行,富邦鑽保卡,台北富邦銀行｜富邦鑽保卡,Taipei Fubon Bank,,,,https://www.fubon.com/banking/images/personal/credit_card/TW/%E9%91%BD%E4%BF%9D%E5%8D%A1_VS.png,false
+fubon-braves-guardians,台北富邦銀行,悍將勇士聯名卡,台北富邦銀行｜悍將勇士聯名卡,Taipei Fubon Bank,,,,https://www.fubon.com/banking/images/personal/credit_card/TW/%E6%82%8D%E5%8B%87%E8%81%AF%E5%90%8D%E5%8D%A1_MT.png,false
+fubon-howard,台北富邦銀行,福華聯名卡,台北富邦銀行｜福華聯名卡,Taipei Fubon Bank,,,,https://www.fubon.com/banking/images/personal/credit_card/TW/%E7%A6%8F%E8%8F%AF%E5%8D%A1.png,false
+fubon-everrich,台北富邦銀行,采盟聯名卡,台北富邦銀行｜采盟聯名卡,Taipei Fubon Bank,,,,https://www.fubon.com/banking/images/personal/credit_card/TW/%E9%87%87%E7%9B%9F%E5%8D%A1.png,false
+taishin-gogoro,台新銀行,Gogoro Rewards 聯名卡,台新銀行｜Gogoro Rewards 聯名卡,Taishin International Bank,,,,https://www.taishinbank.com.tw/TSB/export/sites/TSB/images/2018/createCard/Gogoro_c-250x190.png,false
+taishin-richart,台新銀行,Richart 信用卡,台新銀行｜Richart 信用卡,Taishin International Bank,,,,https://www.taishinbank.com.tw/TSB/export/sites/TSB/images/creditcard/R111.gif,false
+taishin-excellence,台新銀行,卓富無限卡,台新銀行｜卓富無限卡,Taishin International Bank,,,,https://www.taishinbank.com.tw/TSB/images/creditcard/cg045_639x1011_2023.png,false
+taishin-dual-currency,台新銀行,台新雙幣卡,台新銀行｜台新雙幣卡,Taishin International Bank,,,,https://www.taishinbank.com.tw/TSB/export/sites/TSB/images/2019/creditcard_intro/c-250x190-052.gif,false
+taishin-cathaypacific,台新銀行,國泰航空聯名卡,台新銀行｜國泰航空聯名卡,Taishin International Bank,,,,https://www.taishinbank.com.tw/TSB/export/sites/TSB/images/2019/creditcard_intro/158x286_20231128_blue1.png,false
+taishin-pxmart,台新銀行,大全聯信用卡,台新銀行｜大全聯信用卡,Taishin International Bank,,,,https://www.taishinbank.com.tw/TSB/export/sites/TSB/images/creditcard/mgpx3.gif,false
+taishin-skmp,台新銀行,新光三越聯名卡,台新銀行｜新光三越聯名卡,Taishin International Bank,,,,https://www.taishinbank.com.tw/TSB/export/sites/TSB/images/2019/creditcard_intro/c-250x190-010.gif,false
+taishin-everrich,台新銀行,昇恆昌聯名卡,台新銀行｜昇恆昌聯名卡,Taishin International Bank,,,,https://www.taishinbank.com.tw/TSB/export/sites/TSB/images/2019/creditcard_intro/c-250x190-cg009.png,false
+taishin-jkopay,台新銀行,街口聯名卡,台新銀行｜街口聯名卡,Taishin International Bank,,,,https://www.taishinbank.com.tw/TSB/export/sites/TSB/images/2019/creditcard_intro/c-250x190-001JKO.gif,false
+taishin-fareastone-friday,台新銀行,遠傳 friDay 聯名卡,台新銀行｜遠傳 friDay 聯名卡,Taishin International Bank,,,,https://www.taishinbank.com.tw/TSB/export/sites/TSB/files/creditcard/banner_250x190_friDay.jpg,false
+sc-beyond,渣打銀行,渣打 Beyond 世界之極卡,渣打銀行｜渣打 Beyond 世界之極卡,Standard Chartered Bank (Taiwan),,,,https://www.sc.com/content/dam/sc/tw/zh_tw/credit-cards/beyond-card/beyond%20card%20face.png,false
+sc-linebank,渣打銀行,渣打 LINE Bank 聯名卡,渣打銀行｜渣打 LINE Bank 聯名卡,Standard Chartered Bank (Taiwan),,,,https://www.sc.com/content/dam/sc/tw/zh_tw/credit-cards/%E6%B8%A3%E6%89%93LINE-Bank%E8%81%AF%E5%90%8D%E5%8D%A1-400x400_content.jpg,true
+sc-priority-infinite,渣打銀行,渣打優先理財無限卡,渣打銀行｜渣打優先理財無限卡,Standard Chartered Bank (Taiwan),,,,https://www.sc.com/content/dam/sc/tw/zh_tw/credit-cards/tw-product-category-infinite-card-400x-400y.png,false
+sc-cashback-signature,渣打銀行,渣打現金回饋御璽卡,渣打銀行｜渣打現金回饋御璽卡,Standard Chartered Bank (Taiwan),,,,https://www.sc.com/content/dam/sc/tw/zh_tw/credit-cards/%E6%B8%A3%E6%89%93%E4%BF%A1%E7%94%A8%E5%8D%A12023%E7%8F%BE%E9%87%91%E5%9B%9E%E9%A5%8B%E5%BE%A1%E7%92%BD%E5%8D%A1-banner%E7%84%A1%E5%8D%A1%E8%99%9F400x400.png,false
+hsbc-liveplus,滙豐(台灣)商業銀行,滙豐 Live+現金回饋卡,滙豐(台灣)商業銀行｜滙豐 Live+現金回饋卡,HSBC Bank (Taiwan),,VISA,Signature,https://www.hsbc.com.tw/content/dam/hsbc/en/images/16-9/14248-hsbc-live-plus-visa-signature-vertical-card-face-800x450.jpg,false
+hsbc-travel-signature,滙豐(台灣)商業銀行,滙豐旅人御璽卡,滙豐(台灣)商業銀行｜滙豐旅人御璽卡,HSBC Bank (Taiwan),,VISA,Signature,https://www.hsbc.com.tw/content/dam/hsbc/tw/images/credit-cards/16-9/16557-travel-one-signature-1600x900.jpg/_jcr_content/renditions/cq5dam.web.1280.1280.jpeg,false
+hsbc-travel-infinite,滙豐(台灣)商業銀行,滙豐旅人無限卡,滙豐(台灣)商業銀行｜滙豐旅人無限卡,HSBC Bank (Taiwan),,VISA,Infinite,https://www.hsbc.com.tw/content/dam/hsbc/tw/images/credit-cards/7745/7745-infinite-black-front-cmyk-1600x900.jpg/_jcr_content/renditions/cq5dam.web.1280.1280.jpeg,false
+hsbc-travel-one,滙豐(台灣)商業銀行,滙豐旅人輕旅卡,滙豐(台灣)商業銀行｜滙豐旅人輕旅卡,HSBC Bank (Taiwan),,,,https://www.hsbc.com.tw/content/dam/hsbc/tw/images/credit-cards/16-9/16557-travel-one-1600x900.jpg/_jcr_content/renditions/cq5dam.web.1280.1280.jpeg,false
+hsbc-cashback-signature,滙豐(台灣)商業銀行,滙豐現金回饋御璽卡,滙豐(台灣)商業銀行｜滙豐現金回饋御璽卡,HSBC Bank (Taiwan),,VISA,Signature,https://www.hsbc.com.tw/content/dam/hsbc/tw/images/credit-cards/7745/7745-hsbc-cashback-signature-card-1600x900.jpg/_jcr_content/renditions/cq5dam.web.1280.1280.jpeg,false
+hsbc-cashback-business-titanium,滙豐(台灣)商業銀行,滙豐運籌理財現金回饋信用卡,滙豐(台灣)商業銀行｜滙豐運籌理財現金回饋信用卡,HSBC Bank (Taiwan),,,Titanium Business,https://www.hsbc.com.tw/content/dam/hsbc/tw/images/credit-cards/7745/7745-hsbc-cashback-business-titanium-credit-card-1600x900.jpg/_jcr_content/renditions/cq5dam.web.1280.1280.jpeg,false
+esun-pi-card,玉山銀行,Pi 拍錢包信用卡,玉山銀行｜Pi 拍錢包信用卡,E.SUN Bank,,,,https://www.esunbank.com/zh-tw/-/media/New-ESUNBANK/Credit-Card/Card-Intro/co-branded-card/pi-card/pi-card.webp?h=288&hash=FB03C68E9A8D12FB0EAAE132EEEDF613&w=460,false
+esun-ubear-pink,玉山銀行,U Bear 信用卡,玉山銀行｜U Bear 信用卡（粉色）,E.SUN Bank,粉色,Mastercard,Titanium Business,https://www.esunbank.com/bank/-/media/New%20ESUNBANK/Credit%20Card/Card%20Intro/bank-card/u-bear/UBear-P230144,false
+esun-eztravel,玉山銀行,易遊卡,玉山銀行｜易遊卡,E.SUN Bank,,,,https://www.esunbank.com/bank/-/media/New%20ESUNBANK/Credit%20Card/Card%20Intro/co-branded-card/eztravel/ez%20card_288x460_2204,false
+esun-starlux-world-elite,玉山銀行,星宇航空聯名卡,玉山銀行｜星宇航空聯名卡（世界之極卡）,E.SUN Bank,世界之極卡,Mastercard,World Elite,https://www.esunbank.com/bank/-/media/new-esunbank/credit-card/Card%20Intro/co-branded-card/starlux/s_ti_n,false
+esun-kumamon-ku01,玉山銀行,熊本熊卡,玉山銀行｜熊本熊卡（KU01）,E.SUN Bank,KU01,JCB,,https://www.esunbank.com/bank/-/media/New%20ESUNBANK/Credit%20Card/Card%20Intro/bank-card/Copy%20of%20e-card/KU01,true
+esun-unicard-white,玉山銀行,玉山 Unicard,玉山銀行｜玉山 Unicard（白色）,E.SUN Bank,白色,VISA,Signature,https://www.esunbank.com/zh-tw/-/media/New-ESUNBANK/Credit-Card/Card-Intro/bank-card/Unicard/1144x720_vw_A025CH,false
+first-15757,第一銀行,iCASH 聯名卡-Q 版,第一銀行｜iCASH 聯名卡-Q 版,First Commercial Bank,,,,https://ccard.firstbank.com.tw/cmsweb/Images/cards/15757.png,false
+first-15959,第一銀行,iCASH 聯名卡-手繪版,第一銀行｜iCASH 聯名卡-手繪版,First Commercial Bank,,,,https://ccard.firstbank.com.tw/cmsweb/Images/cards/15959.png,false
+first-17979,第一銀行,iFUN 愛玩樂卡,第一銀行｜iFUN 愛玩樂卡,First Commercial Bank,,,,https://ccard.firstbank.com.tw/cmsweb/Images/cards/17979.png,false
+first-19603,第一銀行,一卡通聯名卡,第一銀行｜一卡通聯名卡,First Commercial Bank,,,,https://ccard.firstbank.com.tw/cmsweb/Images/cards/19603.png,false
+first-13535,第一銀行,台科大認同卡,第一銀行｜台科大認同卡,First Commercial Bank,,,,https://ccard.firstbank.com.tw/cmsweb/Images/cards/13535.png,false
+first-13636,第一銀行,媚儷鈦金卡,第一銀行｜媚儷鈦金卡,First Commercial Bank,,,,https://ccard.firstbank.com.tw/cmsweb/Images/cards/13636.png,false
+first-13703,第一銀行,宜籣認同卡,第一銀行｜宜籣認同卡,First Commercial Bank,,,,https://ccard.firstbank.com.tw/cmsweb/Images/cards/13703.png,false
+first-12525,第一銀行,御璽商旅卡,第一銀行｜御璽商旅卡,First Commercial Bank,,,,https://ccard.firstbank.com.tw/cmsweb/Images/cards/12525.png,false
+first-18080,第一銀行,悠遊聯名卡,第一銀行｜悠遊聯名卡,First Commercial Bank,,,,https://ccard.firstbank.com.tw/cmsweb/Images/cards/18080.png,false
+first-15050,第一銀行,星璨現金回饋卡,第一銀行｜星璨現金回饋卡,First Commercial Bank,,,,https://ccard.firstbank.com.tw/cmsweb/Images/cards/15050.png,false
+first-12929,第一銀行,環貫綠佳利聯名卡,第一銀行｜環貫綠佳利聯名卡,First Commercial Bank,,,,https://ccard.firstbank.com.tw/cmsweb/Images/cards/12929.png,false
+first-38585,第一銀行,由你分期卡,第一銀行｜由你分期卡,First Commercial Bank,,,,https://ccard.firstbank.com.tw/cmsweb/Images/cards/38585.png,false
+first-15252,第一銀行,綠活卡(一卡通),第一銀行｜綠活卡(一卡通),First Commercial Bank,,,,https://ccard.firstbank.com.tw/cmsweb/Images/cards/15252.png,false
+first-15151,第一銀行,綠活卡(悠遊),第一銀行｜綠活卡(悠遊),First Commercial Bank,,,,https://ccard.firstbank.com.tw/cmsweb/Images/cards/15151.png,false
+first-01103,第一銀行,義享天地世界卡,第一銀行｜義享天地世界卡,First Commercial Bank,,,,https://ccard.firstbank.com.tw/cmsweb/Images/cards/01103.png,false
+first-14103,第一銀行,義享天地鈦金卡,第一銀行｜義享天地鈦金卡,First Commercial Bank,,,,https://ccard.firstbank.com.tw/cmsweb/Images/cards/14103.png,false
+first-15555,第一銀行,菁英御璽卡,第一銀行｜菁英御璽卡,First Commercial Bank,,,,https://ccard.firstbank.com.tw/cmsweb/Images/cards/15555.png,false
+first-16703,第一銀行,里仁為美福智御璽卡,第一銀行｜里仁為美福智御璽卡,First Commercial Bank,,,,https://ccard.firstbank.com.tw/cmsweb/Images/cards/16703.png,false
+first-12626,第一銀行,鈦金商旅卡,第一銀行｜鈦金商旅卡,First Commercial Bank,,,,https://ccard.firstbank.com.tw/cmsweb/Images/cards/12626.png,false
+first-17171,第一銀行,雙幣鈦金商旅卡,第一銀行｜雙幣鈦金商旅卡,First Commercial Bank,,,,https://ccard.firstbank.com.tw/cmsweb/Images/cards/17171.png,false
+far-eastern-international-bank-c-est-moi-mastercard-card,遠東商銀,C'est Moi 我的卡 Mastercard,遠東商銀｜C'est Moi 我的卡 Mastercard,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/004MP.jpg,false
+far-eastern-international-bank-c-est-moi-visa-card,遠東商銀,C'est Moi 我的卡 VISA,遠東商銀｜C'est Moi 我的卡 VISA,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/005VP.jpg,false
+far-eastern-international-bank-c-est-moi-card-010vs,遠東商銀,C'est Moi 我的卡經典款,遠東商銀｜C'est Moi 我的卡經典款,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/010VS.jpg,false
+far-eastern-international-bank-c-est-moi-card-16,遠東商銀,C'est Moi 我的卡（原南山人壽認同卡）,遠東商銀｜C'est Moi 我的卡（原南山人壽認同卡）,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/16.jpg,false
+far-eastern-international-bank-c-est-moi-card-006js,遠東商銀,C'est Moi 旅遊悠遊卡,遠東商銀｜C'est Moi 旅遊悠遊卡,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/006JS.jpg,false
+far-eastern-international-bank-combo-card,遠東商銀,Combo 卡,遠東商銀｜Combo 卡,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/11.jpg,false
+far-eastern-international-bank-esprit-card,遠東商銀,Esprit 聯名卡,遠東商銀｜Esprit 聯名卡,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/12.jpg,false
+far-eastern-international-bank-mc2-card,遠東商銀,MC2 卡,遠東商銀｜MC2 卡,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/13.jpg,false
+far-eastern-international-bank-newcentury-card,遠東商銀,NewCentury 信用卡,遠東商銀｜NewCentury 信用卡,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/7VC.jpg,false
+far-eastern-international-bank-etag-card,遠東商銀,eTag 聯名卡,遠東商銀｜eTag 聯名卡,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/008VP.jpg,false
+far-eastern-international-bank-card-card-003mi,遠東商銀,世界卡,遠東商銀｜世界卡,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/003MI.jpg,false
+far-eastern-international-bank-card-card-5mc,遠東商銀,伊甸愛心卡,遠東商銀｜伊甸愛心卡,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/5MC.jpg,false
+far-eastern-international-bank-card-card-14,遠東商銀,工會卡,遠東商銀｜工會卡,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/14.jpg,false
+far-eastern-international-bank-card-card-17,遠東商銀,校園卡,遠東商銀｜校園卡,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/17.jpg,false
+far-eastern-international-bank-card-card-003vi,遠東商銀,無限卡,遠東商銀｜無限卡,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/003VI.jpg,false
+far-eastern-international-bank-card-card-18,遠東商銀,華信航空聯名卡,遠東商銀｜華信航空聯名卡,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/18.jpg,false
+far-eastern-international-bank-card-card-19,遠東商銀,遠企尊榮金卡,遠東商銀｜遠企尊榮金卡,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/19.jpg,false
+far-eastern-international-bank-happy-go-card,遠東商銀,遠東 HAPPY GO 頂級卡,遠東商銀｜遠東 HAPPY GO 頂級卡,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/002VI.jpg,false
+far-eastern-international-bank-card-card-013ms,遠東商銀,遠東快樂信用卡,遠東商銀｜遠東快樂信用卡,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/013MS.jpg,false
+far-eastern-international-bank-card-card-15,遠東商銀,遠東快樂信用卡（原台塑聯名卡）,遠東商銀｜遠東快樂信用卡（原台塑聯名卡）,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/15.jpg,false
+far-eastern-international-bank-card-card-happyworldbusiness,遠東商銀,遠東快樂無限卡／快樂世界商務卡,遠東商銀｜遠東快樂無限卡／快樂世界商務卡,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/HappyWorldBusiness.png,false
+far-eastern-international-bank-card-card-017ms,遠東商銀,遠東樂家+卡,遠東商銀｜遠東樂家+卡,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/017MS.jpg,false
+far-eastern-international-bank-card-card-018hwc,遠東商銀,遠東樂行卡,遠東商銀｜遠東樂行卡,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/018HWC.jpg,false
+far-eastern-international-bank-icloud-card,遠東商銀,遠東雲端 iCloud 信用卡,遠東商銀｜遠東雲端 iCloud 信用卡,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/001MP.png,false
+far-eastern-international-bank-card-card-topbcorp,遠東商銀,遠東頂極商務卡,遠東商銀｜遠東頂極商務卡,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/TopBCorp.jpg,false
+far-eastern-international-bank-card-card-happygotopvisa,遠東商銀,遠東頂級快樂卡,遠東商銀｜遠東頂級快樂卡,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/HappyGOtopVISA.jpg,false
+far-eastern-international-bank-card-card-009vp,遠東商銀,飲食男女卡,遠東商銀｜飲食男女卡,Far Eastern International Bank,,,,https://www.feib.com.tw/upload/WebSiteImages/creditcard/card/009VP.jpg,false

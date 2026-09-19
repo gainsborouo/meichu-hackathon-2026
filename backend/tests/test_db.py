@@ -42,6 +42,11 @@ def test_migration_renders_postgres_sql() -> None:
         "reward_rules",
         "google_refresh_token",
         "ON DELETE SET NULL",
+        "artwork_id",
+        "official_image_url",
+        "uq_cards_artwork_id",
+        "DO $card_catalog$",
+        "ctbc-linepay-ve8710",
     ):
         assert needle in out
 

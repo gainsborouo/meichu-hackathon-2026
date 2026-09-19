@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { flushPromises, mount } from '@vue/test-utils'
-import { creditCardArtworkCatalog } from '../../data/creditCardArtwork'
 import CardManagementView from '../CardManagementView.vue'
 
 const apiMocks = vi.hoisted(() => ({
@@ -12,20 +11,32 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock('@/services/api', () => ({ api: apiMocks }))
 
-const firstArtwork = creditCardArtworkCatalog[0]!
-const secondArtwork = creditCardArtworkCatalog.find(
-  (card) => card.issuer === '台北富邦銀行' && card.cardName === 'momo 卡',
-)!
 const catalogCards = [
   {
     id: '11111111-1111-4111-8111-111111111111',
-    bank_name: firstArtwork.issuer,
-    name: firstArtwork.cardName,
+    bank_name: '中國信託銀行',
+    name: '中國信託 LINE Pay 信用卡',
+    artwork_id: 'ctbc-linepay-ve8710',
+    display_name: '中國信託銀行｜中國信託 LINE Pay 信用卡（VE8710）',
+    issuer_en: 'CTBC Bank',
+    variant: 'VE8710',
+    network: 'VISA',
+    tier: 'Signature',
+    official_image_url: 'https://example.com/ctbc.png',
+    image_is_composite: false,
   },
   {
     id: '22222222-2222-4222-8222-222222222222',
-    bank_name: secondArtwork.issuer,
-    name: secondArtwork.cardName,
+    bank_name: '台北富邦銀行',
+    name: 'momo 卡',
+    artwork_id: 'fubon-momo',
+    display_name: '台北富邦銀行｜momo 卡',
+    issuer_en: 'Taipei Fubon Bank',
+    variant: null,
+    network: null,
+    tier: null,
+    official_image_url: 'https://example.com/momo.png',
+    image_is_composite: false,
   },
 ]
 const ownedCard = {
@@ -76,7 +87,7 @@ describe('CardManagementView', () => {
     expect(wrapper.get('.wallet-card').text()).toContain(catalogCards[0]!.name)
     expect(wrapper.findAll('.catalogue-card')).toHaveLength(2)
     expect(wrapper.get('.catalogue-card__image img').attributes('src')).toBe(
-      `/card-art/${firstArtwork.id}.webp`,
+      `/card-art/${catalogCards[0]!.artwork_id}.webp`,
     )
   })
 
@@ -89,6 +100,17 @@ describe('CardManagementView', () => {
     expect(wrapper.get('[role="alert"]').text()).toContain('無法讀取卡片資料')
     expect(wrapper.find('.wallet-empty').exists()).toBe(false)
     expect(wrapper.find('.catalogue-empty').exists()).toBe(false)
+  })
+
+  it('卡面載入失敗時顯示替代內容', async () => {
+    const wrapper = mountCardManagement()
+    await flushPromises()
+
+    await wrapper.get('.catalogue-card__image img').trigger('error')
+
+    expect(wrapper.get('.catalogue-card__image .card-art-fallback').text()).toContain(
+      '卡面圖片無法顯示',
+    )
   })
 
   it('使用後端卡片 UUID 新增卡片，並保存回傳的持卡 UUID', async () => {

@@ -5,7 +5,6 @@ import type { User } from 'firebase/auth'
 import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter, type LocationQueryRaw } from 'vue-router'
 
-import { creditCardArtworkCatalog } from '../../data/creditCardArtwork'
 import { useAuthStore } from '../../stores/authStore'
 import RecommendationsView from '../RecommendationsView.vue'
 
@@ -15,8 +14,6 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock('@/firebase', () => ({ auth: {} }))
 vi.mock('@/services/api', () => ({ api: { post: apiMocks.post } }))
-
-const matchingArtwork = creditCardArtworkCatalog[0]!
 
 const searchResponse = {
   query: {
@@ -32,8 +29,16 @@ const searchResponse = {
     owned: true,
     card: {
       id: 'card-1',
-      bank_name: matchingArtwork.issuer,
-      name: matchingArtwork.cardName,
+      bank_name: '中國信託銀行',
+      name: '中國信託 LINE Pay 信用卡',
+      artwork_id: 'ctbc-linepay-ve8710',
+      display_name: '中國信託銀行｜中國信託 LINE Pay 信用卡（VE8710）',
+      issuer_en: 'CTBC Bank',
+      variant: 'VE8710',
+      network: 'VISA',
+      tier: 'Signature',
+      official_image_url: 'https://example.com/ctbc.png',
+      image_is_composite: false,
     },
     estimated_reward: {
       amount: 30,
@@ -49,8 +54,8 @@ const searchResponse = {
       {
         id: 'sale-1',
         card_id: 'card-1',
-        bank_name: matchingArtwork.issuer,
-        card_name: matchingArtwork.cardName,
+        bank_name: '中國信託銀行',
+        card_name: '中國信託 LINE Pay 信用卡',
         title: '指定通路加碼',
         reward: '最高 5%',
         conditions: '每月回饋上限 300 元。',
@@ -70,6 +75,14 @@ const searchResponse = {
         id: 'card-2',
         bank_name: '測試銀行',
         name: '測試信用卡',
+        artwork_id: null,
+        display_name: null,
+        issuer_en: null,
+        variant: null,
+        network: null,
+        tier: null,
+        official_image_url: null,
+        image_is_composite: null,
       },
       estimated_reward: {
         amount: 20,
@@ -175,9 +188,11 @@ describe('RecommendationsView', () => {
     const cards = wrapper.findAll('.recommendation-card')
     expect(cards).toHaveLength(2)
     expect(cards[0]!.text()).toContain('第 1 名')
-    expect(cards[0]!.text()).toContain(matchingArtwork.cardName)
+    expect(cards[0]!.text()).toContain(searchResponse.best.card.name)
     expect(cards[0]!.text()).toContain('3%–5%')
-    expect(cards[0]!.get('img').attributes('src')).toBe(`/card-art/${matchingArtwork.id}.webp`)
+    expect(cards[0]!.get('img').attributes('src')).toBe(
+      `/card-art/${searchResponse.best.card.artwork_id}.webp`,
+    )
     expect(cards[1]!.text()).toContain('第 2 名')
     expect(cards[1]!.find('.card-art__fallback').exists()).toBe(true)
     expect(wrapper.get('details').text()).toContain('指定通路加碼')

@@ -30,6 +30,16 @@ async def client(session):
 async def test_card_analysis_and_sales_flow(client, session) -> None:
     p = get_settings().api_v1_prefix
     card = (await client.get(f"{p}/cards")).json()[0]
+    assert {
+        "artwork_id",
+        "display_name",
+        "issuer_en",
+        "variant",
+        "network",
+        "tier",
+        "official_image_url",
+        "image_is_composite",
+    } <= card.keys()
     r = await client.post(f"{p}/me/cards", json={"card_id": card["id"]})
     assert r.status_code == 201
     uc = r.json()["id"]

@@ -26,7 +26,8 @@ async def search(body: SearchRequest, user: CurrentUser, session: SessionDep) ->
     by_card = {uc.card_id: uc for uc in user_cards}
 
     if body.include_unowned:
-        cards = {c.id: c for c in await cards_repo.list_cards(session)}
+        cards = {uc.card_id: uc.card for uc in user_cards}
+        cards.update({c.id: c for c in await cards_repo.list_cards_with_sales(session)})
     else:
         cards = {uc.card_id: uc.card for uc in user_cards}
 

@@ -5,7 +5,6 @@ import { storeToRefs } from 'pinia'
 import { useRoute, useRouter, type LocationQueryValue } from 'vue-router'
 
 import SiteHeader from '../components/SiteHeader.vue'
-import { creditCardArtworkCatalog, type CreditCardArtwork } from '../data/creditCardArtwork'
 import { api } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
 
@@ -19,8 +18,16 @@ interface SearchRequest {
 
 interface CardSummary {
   id: string
-  bank_name: string
+  bank_name: string | null
   name: string
+  artwork_id: string | null
+  display_name: string | null
+  issuer_en: string | null
+  variant: string | null
+  network: string | null
+  tier: string | null
+  official_image_url: string | null
+  image_is_composite: boolean | null
 }
 
 interface EstimatedReward {
@@ -86,32 +93,11 @@ let activeController: AbortController | null = null
 
 const formattedAmount = computed(() => amount.value.replace(/\B(?=(\d{3})+(?!\d))/g, ','))
 
-function normalizeCardText(value: string) {
-  return value.normalize('NFKC').trim().replace(/\s+/g, ' ')
-}
-
-function artworkKey(bankName: string, cardName: string) {
-  return `${normalizeCardText(bankName)}\u0000${normalizeCardText(cardName)}`
-}
-
-const artworkByCard = new Map<string, CreditCardArtwork>()
-
-for (const artwork of creditCardArtworkCatalog) {
-  const key = artworkKey(artwork.issuer, artwork.cardName)
-  if (!artworkByCard.has(key)) artworkByCard.set(key, artwork)
-}
-
 const rankedRecommendations = computed(() => {
   if (!searchResult.value) return []
 
   return [searchResult.value.best, ...searchResult.value.alternatives].map(
-    (recommendation, index) => ({
-      artwork: artworkByCard.get(
-        artworkKey(recommendation.card.bank_name, recommendation.card.name),
-      ),
-      rank: index + 1,
-      recommendation,
-    }),
+    (recommendation, index) => ({ rank: index + 1, recommendation }),
   )
 })
 
@@ -427,12 +413,15 @@ onBeforeUnmount(() => activeController?.abort())
             <div class="recommendation-card__header">
               <div class="card-art">
                 <img
-                  v-if="item.artwork && !failedImageIds.has(item.artwork.id)"
-                  :src="`/card-art/${item.artwork.id}.webp`"
-                  :alt="`${item.recommendation.card.bank_name}${item.recommendation.card.name}卡面`"
+                  v-if="
+                    item.recommendation.card.artwork_id &&
+                    !failedImageIds.has(item.recommendation.card.artwork_id)
+                  "
+                  :src="`/card-art/${item.recommendation.card.artwork_id}.webp`"
+                  :alt="`${item.recommendation.card.bank_name ?? ''}${item.recommendation.card.name}卡面`"
                   width="640"
                   height="400"
-                  @error="markImageFailed(item.artwork.id)"
+                  @error="markImageFailed(item.recommendation.card.artwork_id)"
                 />
                 <div v-else class="card-art__fallback">
                   <CreditCard :size="38" :stroke-width="1.5" aria-hidden="true" />

@@ -24,6 +24,14 @@ class CardRead(_ORM):
     id: uuid.UUID
     bank_name: str | None
     name: str
+    artwork_id: str | None
+    display_name: str | None
+    issuer_en: str | None
+    variant: str | None
+    network: str | None
+    tier: str | None
+    official_image_url: str | None
+    image_is_composite: bool | None
 
 
 class UserCardCreate(BaseModel):
