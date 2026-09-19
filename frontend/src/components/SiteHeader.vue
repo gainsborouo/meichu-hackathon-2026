@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
-import { CircleUserRound, CreditCard, FileUp, LogOut } from '@lucide/vue'
+import { CircleUserRound, CreditCard, FileUp, LogOut, WalletCards } from '@lucide/vue'
 import { onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth'
 
 import { auth, googleProvider } from '@/firebase'
 
 defineProps<{
-  current: 'home' | 'upload-statement'
+  current: 'home' | 'upload-statement' | 'card-management'
 }>()
 
 const authUser = ref<User | null>(null)
@@ -91,18 +91,26 @@ async function handleLogout() {
         </span>
         <span>信用卡推薦</span>
       </a>
-
-      <nav aria-label="主要導覽">
-        <a
-          class="topbar__link"
-          href="/upload-statement"
-          :aria-current="current === 'upload-statement' ? 'page' : undefined"
-        >
-          <FileUp :size="18" aria-hidden="true" />
-          上傳帳單
-        </a>
-      </nav>
     </div>
+
+    <nav class="topbar__nav" aria-label="主要導覽">
+      <a
+        class="topbar__link"
+        href="/upload-statement"
+        :aria-current="current === 'upload-statement' ? 'page' : undefined"
+      >
+        <FileUp :size="18" aria-hidden="true" />
+        上傳帳單
+      </a>
+      <a
+        class="topbar__link"
+        href="/cards"
+        :aria-current="current === 'card-management' ? 'page' : undefined"
+      >
+        <WalletCards :size="18" aria-hidden="true" />
+        卡片管理
+      </a>
+    </nav>
 
     <div class="topbar__right">
       <div class="topbar__auth">
@@ -177,14 +185,13 @@ async function handleLogout() {
 
 <style scoped>
 .topbar {
-  display: flex;
+  display: grid;
   width: min(100% - (var(--space-lg) * 2), var(--layout-max));
   min-height: var(--topbar-height);
   margin-inline: auto;
   align-items: center;
-  flex-wrap: wrap;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: var(--space-sm);
-  justify-content: space-between;
   border-bottom: var(--rule-hairline) solid var(--color-rule);
 }
 
@@ -218,6 +225,7 @@ async function handleLogout() {
 
 .topbar__left,
 .topbar__right,
+.topbar__nav,
 .topbar__link,
 .topbar__auth-actions,
 .topbar__identity,
@@ -230,11 +238,17 @@ async function handleLogout() {
   min-width: 0;
   align-items: flex-start;
   gap: var(--space-sm);
+  justify-self: end;
 }
 
 .topbar__left {
   min-width: 0;
   gap: var(--space-sm);
+}
+
+.topbar__nav {
+  justify-self: start;
+  gap: var(--space-2xs);
 }
 
 .topbar__link {
@@ -363,10 +377,35 @@ async function handleLogout() {
   }
 }
 
+@media (max-width: 52rem) {
+  .topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding-block: var(--space-xs);
+  }
+
+  .topbar__nav {
+    display: flex;
+    width: 100%;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: flex-start;
+    justify-self: start;
+    border-top: var(--rule-hairline) solid var(--color-rule);
+    padding-block-start: var(--space-xs);
+  }
+
+  .topbar__link {
+    justify-content: flex-start;
+  }
+}
+
 @media (max-width: 40rem) {
   .topbar__right {
-    flex: 1 0 100%;
     justify-content: flex-end;
+  }
+
+  .topbar__identity {
+    display: none;
   }
 }
 </style>
