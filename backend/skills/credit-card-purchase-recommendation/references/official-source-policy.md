@@ -1,9 +1,14 @@
 # Official source policy
 
 A pick is `verified` only when backed by a page on the **issuing bank's own domain**
-**that your `web_search` calls actually returned**. Citing a plausible URL you did not
-see in search results does not verify anything: the backend compares your
-`official_sources` with the URLs the search tool returned and drops the rest.
+**that the backend opened successfully** through `open_official_page`. Search results
+only prove a URL was listed, and a URL you cite from memory proves nothing: the backend
+compares your `official_sources` with the pages it really opened and drops the rest.
+
+`open_official_page(url)` performs a real GET from the backend. It succeeds only for an
+https URL on a supported bank domain (redirects included; a redirect off the allow-list
+fails), for a public host, with a 2xx text/HTML response that has readable text. It
+returns `OPENED <final url>` plus the page text, or `NOT OPENED: <reason>`.
 
 ## Accepted
 
@@ -29,9 +34,9 @@ Third-party pages may help you understand a campaign, but never list them in
 
 ## What verification does
 
-When a pick has at least one allow-listed URL, the backend stamps that campaign's
-`official_verified_at` (later requests see it in the candidate). No allow-listed URL
-means no stamp and `unverified`.
+When a pick has at least one allow-listed URL that the backend opened, it stamps that campaign's
+`official_verified_at` (later requests see it in the candidate). No opened
+official page means no stamp and `unverified`.
 
 Live search only verifies and supplements campaigns that already exist. It never creates
 new campaigns; the crawler plus `import_sales` remain the source of truth for what
@@ -42,8 +47,10 @@ campaigns exist.
 - Search with product / store / card name / bank / campaign terms only. No email, no card
   list, no spend data, and no prices or amounts. The search tool refuses such queries
   (and text copied from the spending summary) instead of sending them.
-- Open the official result and check the campaign is current and matches the candidate's
-  `conditions`. If the official page contradicts the candidate, prefer `null` for that pick
+- Call `open_official_page` on the official result and check the campaign is current and
+  matches the candidate's `conditions`. Opening proves the page is reachable and readable;
+  whether it says what the candidate says is your judgement, so read it. If the official page contradicts the candidate, prefer `null` for that pick
   and say so in the reason.
-- No official page found: return `official_sources: []`. Do not lower the bar.
+- No official page found or `NOT OPENED`: return `official_sources: []`. Do not lower the
+  bar.
 - Verification is about the campaign existing as described, not about your ranking.

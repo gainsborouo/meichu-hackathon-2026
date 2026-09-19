@@ -12,7 +12,7 @@ The only write is `mark_verified`: stamping `sales.official_verified_at` on camp
 the model backed with an allow-listed official URL. Nothing here writes to a calendar or
 to user_sales; `calendar_draft` is plain data.
 
-Live search verifies and supplements campaigns that already exist in `sales`. It never
+Live search and page opening verify and supplement campaigns that already exist in `sales`. It never
 adds new campaigns: the candidate set comes only from the crawler + import_sales data.
 """
 
@@ -278,27 +278,28 @@ def _pick(raw: Any, allowed: dict[str, dict], label: str) -> tuple[dict, dict] |
     return candidate, raw
 
 
-def _observed(raw: dict[str, Any]) -> set[str]:
-    urls = raw.get("observed_urls")
+def _opened(raw: dict[str, Any]) -> set[str]:
+    urls = raw.get("opened_urls")
     return (
         {normalize_url(u) for u in urls if isinstance(u, str)} if isinstance(urls, list) else set()
     )
 
 
-def _verified_sources(candidate: dict, pick: dict, observed: set[str]) -> list[dict]:
-    """Model-claimed official sources that are on the bank's domain AND were actually
-    returned by the search tool during this run.
+def _verified_sources(candidate: dict, pick: dict, opened: set[str]) -> list[dict]:
+    """Model-claimed official sources that are on the bank's domain AND that the backend
+    itself opened successfully during this run.
 
-    The allow-list alone is not enough: a model can write a plausible path on a real
-    bank domain it never opened. `observed_urls` is filled in by the agent runner from
-    the tool's own results, never from model output, so a URL the search did not return
-    cannot verify anything. A runner that supplies no observed_urls verifies nothing.
+    Neither the allow-list nor a search hit is enough: a model can cite a plausible bank
+    URL it never read, and a search snippet only proves the URL was listed. `opened_urls`
+    is filled in by the agent runner from `open_official_page` (a real backend GET that
+    returned a readable 2xx page), never from model output. A runner that reports
+    nothing opened verifies nothing.
     """
     sources = pick.get("official_sources")
     official = filter_official(
         candidate["card"]["bank_name"], sources if isinstance(sources, list) else []
     )
-    return [s for s in official if normalize_url(s["url"]) in observed]
+    return [s for s in official if normalize_url(s["url"]) in opened]
 
 
 def _reason(raw: dict) -> str:
@@ -331,7 +332,7 @@ def _wait_suggestion(
     pre: Preprocessed,
     best_now: BestNow | None,
     future_pick: tuple[dict, dict] | None,
-    observed: set[str],
+    opened: set[str],
 ) -> WaitSuggestion | None:
     if future_pick is None:
         return None
@@ -339,7 +340,7 @@ def _wait_suggestion(
     start_raw = cand.get("campaign_start")
     if not start_raw or date.fromisoformat(start_raw) <= pre.today:
         return None
-    sources = _verified_sources(cand, raw, observed)
+    sources = _verified_sources(cand, raw, opened)
     if not sources:
         return None
     now_reward = best_now.estimated_reward_twd if best_now else 0.0
@@ -374,11 +375,11 @@ def assemble(pre: Preprocessed, raw: dict[str, Any]) -> RecommendationResponse:
     now_pick = _pick(raw.get("best_now"), now_by_id, "best_now")
     future_pick = _pick(raw.get("best_future"), future_by_id, "best_future")
 
-    observed = _observed(raw)
+    opened = _opened(raw)
     best_now: BestNow | None = None
     if now_pick is not None:
         cand, model_raw = now_pick
-        sources = _verified_sources(cand, model_raw, observed)
+        sources = _verified_sources(cand, model_raw, opened)
         best_now = BestNow(
             card=CardRef(**cand["card"]),
             sale_id=cand["sale_id"],
@@ -400,7 +401,7 @@ def assemble(pre: Preprocessed, raw: dict[str, Any]) -> RecommendationResponse:
     return RecommendationResponse(
         mode=pre.mode,  # type: ignore[arg-type]
         best_now=best_now,
-        wait_suggestion=_wait_suggestion(pre, best_now, future_pick, observed),
+        wait_suggestion=_wait_suggestion(pre, best_now, future_pick, opened),
         explanation=explanation,
     )
 
@@ -415,14 +416,10 @@ def verified_sale_ids(pre: Preprocessed, raw: dict[str, Any]) -> list[str]:
             "best_future",
         ),
     )
-    observed = _observed(raw)
+    opened = _opened(raw)
     ids: list[str] = []
     for pick in picks:
-        if (
-            pick is not None
-            and _verified_sources(*pick, observed)
-            and pick[0]["sale_id"] not in ids
-        ):
+        if pick is not None and _verified_sources(*pick, opened) and pick[0]["sale_id"] not in ids:
             ids.append(pick[0]["sale_id"])
     return ids
 

@@ -83,15 +83,15 @@ def official(url="https://www.esunbank.com/promo"):
     return [{"title": "官方活動頁", "url": url}]
 
 
-def observed(raw):
-    """Mimic the runner: every URL the model cites was returned by the search tool."""
+def opened(raw):
+    """Mimic the runner: every URL the model cites was opened successfully by the backend."""
     urls = [
         src["url"]
         for key in ("best_now", "best_future")
         if isinstance(raw.get(key), dict)
         for src in raw[key].get("official_sources", [])
     ]
-    return {**raw, "observed_urls": urls}
+    return {**raw, "opened_urls": urls}
 
 
 @pytest_asyncio.fixture
@@ -251,7 +251,7 @@ async def test_official_source_verifies_and_backend_numbers_win(session, world):
             "estimated_reward_twd": 99999,  # invented by the "model"; must be ignored
         }
     }
-    best = service.assemble(p, observed(raw)).best_now
+    best = service.assemble(p, opened(raw)).best_now
     assert best.verification_status == "verified"
     assert best.estimated_reward_twd == 224.7 and best.rate_display == "3%"
     assert best.card.name == "Unicard" and best.requires_registration is False
@@ -270,7 +270,7 @@ def test_official_domain_rules():
 
 
 def _raw(now_id="free-uni#0", fut_id="future-gogo#0", fut_sources=None):
-    return observed(
+    return opened(
         {
             "best_now": {"candidate_id": now_id, "reason": "now", "official_sources": official()},
             "best_future": {
@@ -515,26 +515,26 @@ async def test_restamp_updates_the_timestamp(session, world):
 # --- review findings ------------------------------------------------------
 
 
-async def test_url_never_returned_by_search_cannot_verify(session, world):
+async def test_url_the_backend_never_opened_cannot_verify(session, world):
     p = await pre(session, world)
     fabricated = official("https://www.esunbank.com/made-up/page-the-model-never-opened")
     raw = _raw()
-    raw["best_now"]["official_sources"] = fabricated  # on-domain, https, but never observed
+    raw["best_now"]["official_sources"] = fabricated  # on-domain, https, but never opened
     result = service.assemble(p, raw)
     assert result.best_now.verification_status == "unverified"
     assert result.best_now.official_sources == []
-    assert service.verified_sale_ids(p, raw) == ["future-gogo"]  # only the observed pick
+    assert service.verified_sale_ids(p, raw) == ["future-gogo"]  # only the opened pick
 
     # No evidence at all (a runner that reports nothing) verifies nothing.
-    bare = {k: v for k, v in _raw().items() if k != "observed_urls"}
+    bare = {k: v for k, v in _raw().items() if k != "opened_urls"}
     assert service.verified_sale_ids(p, bare) == []
     assert service.assemble(p, bare).wait_suggestion is None
 
 
-async def test_observed_urls_match_despite_trailing_slash_and_fragment(session, world):
+async def test_opened_urls_match_despite_trailing_slash_and_fragment(session, world):
     p = await pre(session, world)
     raw = _raw()
-    raw["observed_urls"] = [
+    raw["opened_urls"] = [
         "HTTPS://WWW.esunbank.com/promo/#top",
         "https://www.taishinbank.com.tw/gogo",
     ]
@@ -597,7 +597,7 @@ def test_search_queries_cannot_leak_price_or_spending_text():
     assert problem("Unicard 回饋 me@example.com")
 
 
-async def test_search_tool_records_only_urls_it_really_returned(monkeypatch):
+async def test_search_results_alone_are_not_evidence(monkeypatch):
     import duckduckgo_search
 
     from app.services.recommendation_agent import _make_web_search
@@ -610,19 +610,65 @@ async def test_search_tool_records_only_urls_it_really_returned(monkeypatch):
             return False
 
         def text(self, query, max_results=5):
-            return [
-                {"title": "官方", "href": "https://www.esunbank.com/promo", "body": "b"},
-                {"title": "ptt", "href": "https://www.ptt.cc/x", "body": "b"},
-            ]
+            return [{"title": "官方", "href": "https://www.esunbank.com/promo", "body": "b"}]
 
     monkeypatch.setattr(duckduckgo_search, "DDGS", FakeDDGS)
-    seen: set[str] = set()
     tool = _make_web_search(
-        {"held_card_names": [], "price": 100, "allowed_terms": (), "context_text": ""}, seen
+        {"held_card_names": [], "price": 100, "allowed_terms": (), "context_text": ""}
     )
     assert "esunbank" in tool("Unicard 玉山銀行 回饋")
-    assert seen == {"https://www.esunbank.com/promo", "https://www.ptt.cc/x"}
-
-    seen.clear()
     assert tool("Unicard 100 回饋").startswith("Search refused")
-    assert seen == set()  # refused queries reach nothing
+
+    # The search hit is not recorded anywhere the service trusts: without opened_urls the
+    # pick stays unverified.
+    raw = {
+        "best_now": {
+            "candidate_id": "free-uni#0",
+            "reason": "r",
+            "official_sources": official(),
+        }
+    }
+    assert service._verified_sources(_cand("玉山銀行"), raw["best_now"], service._opened(raw)) == []
+
+
+def _cand(bank):
+    return {"card": {"bank_name": bank}}
+
+
+async def test_open_tool_records_only_pages_that_really_opened(monkeypatch):
+    from app.services import official_pages
+    from app.services.official_pages import PageResult
+    from app.services.recommendation_agent import _make_open_official_page
+
+    results = {
+        "https://www.esunbank.com/promo": PageResult(
+            True, "https://www.esunbank.com/promo/", 200, "活動", "很長的活動內容 " * 20
+        ),
+        "https://www.esunbank.com/gone": PageResult(
+            False, "https://www.esunbank.com/gone", 404, error="HTTP 404"
+        ),
+    }
+    monkeypatch.setattr("app.services.recommendation_agent.fetch_page", lambda url: results[url])
+    opened: set[str] = set()
+    tool = _make_open_official_page(opened)
+
+    assert tool("https://www.esunbank.com/gone") == "NOT OPENED: HTTP 404"
+    assert opened == set()
+    out = tool("https://www.esunbank.com/promo")
+    assert out.startswith("OPENED https://www.esunbank.com/promo/")
+    assert opened == {"https://www.esunbank.com/promo"}  # normalized; trailing slash folded
+    assert official_pages.MIN_TEXT_CHARS > 0
+
+
+async def test_only_opened_official_pages_verify_and_stamp(session, world):
+    p = await pre(session, world)
+    raw = _raw()
+    raw["opened_urls"] = ["https://www.esunbank.com/promo"]  # best_now opened, future not
+    result = service.assemble(p, raw)
+    assert result.best_now.verification_status == "verified"
+    assert result.wait_suggestion is None  # future pick was never opened
+    assert service.verified_sale_ids(p, raw) == ["free-uni"]
+
+    raw["opened_urls"] = []
+    assert service.assemble(p, raw).best_now.verification_status == "unverified"
+    assert service.verified_sale_ids(p, raw) == []

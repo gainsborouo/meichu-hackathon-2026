@@ -7,8 +7,9 @@ key is needed. The instruction is the credit-card-purchase-recommendation skill.
 
 The agent only *proposes*; app.services.purchase_recommendation validates it.
 
-Verification is bound to evidence: an official source only counts if its URL was
-returned by `web_search` during the run (`observed_urls`).
+Verification is page-level: an official source only counts if the backend itself opened
+it during the run with `open_official_page` and got a readable 2xx page (`opened_urls`).
+A URL that merely appeared in search results, or that the model wrote down, is not enough.
 
 Live search here verifies and supplements campaigns already in `sales`. It does not
 discover or store new campaigns; the crawler (news.py) + import_sales own that.
@@ -31,6 +32,8 @@ from google.adk.models.lite_llm import LiteLlm
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 
+from app.services.official_pages import fetch_page
+from app.services.official_sources import normalize_url
 from app.services.purchase_recommendation import RecommendationAgent, RecommendationError
 
 logger = logging.getLogger(__name__)
@@ -141,7 +144,7 @@ def screening_inputs(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _make_web_search(screen: dict[str, Any], observed: set[str]):
+def _make_web_search(screen: dict[str, Any]):
     def web_search(query: str) -> str:
         """Search the web to confirm a credit-card campaign on the bank's official site.
 
@@ -160,15 +163,38 @@ def _make_web_search(screen: dict[str, Any], observed: set[str]):
             return f"Search error: {exc}"
         if not results:
             return "No search results found."
-        for r in results:
-            if isinstance(r.get("href"), str):
-                observed.add(r["href"])
         return "\n---\n".join(
             f"Title: {r.get('title')}\nURL: {r.get('href')}\nSnippet: {r.get('body')}"
             for r in results
         )
 
     return web_search
+
+
+MAX_PAGE_CHARS_TO_MODEL = 3000
+
+
+def _make_open_official_page(opened: set[str]):
+    def open_official_page(url: str) -> str:
+        """Open an official bank page and return its text, to confirm a campaign.
+
+        Only https pages on a supported bank's own domain can be opened (redirects
+        included). Cite a URL as an official source only after this returns OPENED.
+
+        Args:
+            url: The bank page URL, e.g. one found by web_search or a candidate's
+                registration_url / source_url.
+        """
+        result = fetch_page(url)
+        if not result.ok:
+            return f"NOT OPENED: {result.error}"
+        opened.add(normalize_url(url))
+        opened.add(normalize_url(result.url))
+        return (
+            f"OPENED {result.url}\nTitle: {result.title}\n\n{result.text[:MAX_PAGE_CHARS_TO_MODEL]}"
+        )
+
+    return open_official_page
 
 
 def _require_env(name: str) -> str:
@@ -185,7 +211,7 @@ async def run_recommendation_agent(
     base_url = _require_env("LLM_BASE_URL")
     api_key = _require_env("LLM_API_KEY")
     model_name = _require_env("LLM_MODEL")
-    observed: set[str] = set()
+    opened: set[str] = set()
 
     text = read_skill_text()
     agent = Agent(
@@ -194,7 +220,7 @@ async def run_recommendation_agent(
         # A callable provider is used verbatim; a plain string would have its {...}
         # (the JSON examples in the contract) treated as ADK state placeholders.
         instruction=lambda _ctx: text,
-        tools=[_make_web_search(screening_inputs(payload), observed)],
+        tools=[_make_web_search(screening_inputs(payload)), _make_open_official_page(opened)],
     )
     app = App(name=APP_NAME, root_agent=agent)
     runner = InMemoryRunner(app=app)
@@ -225,9 +251,9 @@ async def run_recommendation_agent(
     except TimeoutError as exc:
         raise RecommendationError(f"agent did not finish within {timeout:.0f}s") from exc
     raw = parse_model_json("".join(answer))
-    # Evidence of what the search really returned. Set here, after parsing, so nothing
-    # the model wrote under this key can survive.
-    raw["observed_urls"] = sorted(observed)
+    # Evidence of what the backend really opened. Set here, after parsing, so nothing the
+    # model wrote under this key can survive.
+    raw["opened_urls"] = sorted(opened)
     return raw
 
 
