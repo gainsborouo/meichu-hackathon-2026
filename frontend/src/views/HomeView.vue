@@ -1,18 +1,8 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from 'vue'
-import {
-  Banknote,
-  CircleUserRound,
-  CircleX,
-  CreditCard,
-  LogOut,
-  Search,
-  Store,
-  Tag,
-} from '@lucide/vue'
-import { onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth'
+import { computed, ref } from 'vue'
+import { Banknote, CircleX, Search, Store, Tag } from '@lucide/vue'
 
-import { auth, googleProvider } from '@/firebase'
+import SiteHeader from '../components/SiteHeader.vue'
 
 const location = ref('')
 const amount = ref('')
@@ -20,73 +10,8 @@ const category = ref('')
 const locationError = ref('')
 const amountError = ref('')
 const categoryError = ref('')
-const authUser = ref<User | null>(null)
-const authReady = ref(false)
-const authBusy = ref(false)
-const authError = ref('')
-const avatarFailed = ref(false)
 
 const formattedAmount = computed(() => amount.value.replace(/\B(?=(\d{3})+(?!\d))/g, ','))
-const authUserName = computed(
-  () => authUser.value?.displayName || authUser.value?.email || 'Google 使用者',
-)
-const showAvatar = computed(() => Boolean(authUser.value?.photoURL) && !avatarFailed.value)
-
-const unsubscribeFromAuth = onAuthStateChanged(
-  auth,
-  (user) => {
-    authUser.value = user
-    authReady.value = true
-    avatarFailed.value = false
-  },
-  () => {
-    authReady.value = true
-    authError.value = '無法確認登入狀態，請重新整理頁面。'
-  },
-)
-
-onUnmounted(unsubscribeFromAuth)
-
-function authErrorCode(error: unknown) {
-  return typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : ''
-}
-
-async function handleLogin() {
-  if (!authReady.value || authBusy.value) return
-
-  authBusy.value = true
-  authError.value = ''
-
-  try {
-    await signInWithPopup(auth, googleProvider)
-  } catch (error) {
-    const code = authErrorCode(error)
-
-    if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') return
-
-    authError.value =
-      code === 'auth/popup-blocked'
-        ? '瀏覽器阻擋登入視窗，請允許彈出式視窗後再試。'
-        : '登入失敗，請稍後再試。'
-  } finally {
-    authBusy.value = false
-  }
-}
-
-async function handleLogout() {
-  if (authBusy.value) return
-
-  authBusy.value = true
-  authError.value = ''
-
-  try {
-    await signOut(auth)
-  } catch {
-    authError.value = '登出失敗，請稍後再試。'
-  } finally {
-    authBusy.value = false
-  }
-}
 
 function handleLocationInput() {
   if (location.value.trim()) locationError.value = ''
@@ -128,81 +53,7 @@ function submitSearch() {
 
 <template>
   <div class="home-page">
-    <header class="topbar">
-      <a class="brand" href="/" aria-label="信用卡推薦首頁">
-        <span class="brand__mark" aria-hidden="true">
-          <CreditCard :size="19" :stroke-width="1.8" />
-        </span>
-        <span>信用卡推薦</span>
-      </a>
-
-      <div class="topbar__auth">
-        <div class="topbar__auth-actions">
-          <div v-if="authUser" class="topbar__identity">
-            <img
-              v-if="showAvatar"
-              class="topbar__avatar"
-              :src="authUser.photoURL || ''"
-              alt=""
-              referrerpolicy="no-referrer"
-              @error="avatarFailed = true"
-            />
-            <span v-else class="topbar__avatar topbar__avatar--fallback" aria-hidden="true">
-              <CircleUserRound :size="24" />
-            </span>
-            <span class="topbar__identity-name">{{ authUserName }}</span>
-          </div>
-
-          <button
-            v-if="authUser"
-            class="topbar__login"
-            type="button"
-            :disabled="authBusy"
-            :aria-busy="authBusy"
-            @click="handleLogout"
-          >
-            <LogOut :size="18" aria-hidden="true" />
-            {{ authBusy ? '登出中…' : '登出' }}
-          </button>
-          <button
-            v-else
-            class="topbar__login topbar__login--google"
-            type="button"
-            aria-label="使用 Google 帳號登入"
-            :disabled="!authReady || authBusy"
-            :aria-busy="authBusy"
-            @click="handleLogin"
-          >
-            <svg
-              class="topbar__google-icon"
-              viewBox="0 0 18 18"
-              aria-hidden="true"
-              focusable="false"
-            >
-              <path
-                fill="#4285f4"
-                d="M17.64 9.205c0-.638-.057-1.252-.164-1.841H9v3.482h4.844a4.14 4.14 0 0 1-1.796 2.716v2.258h2.909c1.702-1.567 2.683-3.874 2.683-6.615Z"
-              />
-              <path
-                fill="#34a853"
-                d="M9 18c2.43 0 4.468-.806 5.957-2.18l-2.909-2.258c-.806.54-1.835.859-3.048.859-2.344 0-4.328-1.585-5.037-3.714H.956v2.332A9 9 0 0 0 9 18Z"
-              />
-              <path
-                fill="#fbbc05"
-                d="M3.963 10.707A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.281-1.707V4.961H.956A9 9 0 0 0 0 9c0 1.452.347 2.827.956 4.039l3.007-2.332Z"
-              />
-              <path
-                fill="#ea4335"
-                d="M9 3.579c1.321 0 2.507.454 3.441 1.346l2.581-2.581C13.464.892 11.426 0 9 0A9 9 0 0 0 .956 4.961l3.007 2.332C4.672 5.164 6.656 3.579 9 3.579Z"
-              />
-            </svg>
-            {{ !authReady ? '確認登入狀態…' : authBusy ? '登入中…' : '登入' }}
-          </button>
-        </div>
-
-        <p v-if="authError" class="topbar__auth-error" role="alert">{{ authError }}</p>
-      </div>
-    </header>
+    <SiteHeader current="home" />
 
     <main class="workspace">
       <section class="workspace__intro" aria-labelledby="page-title">
@@ -353,146 +204,6 @@ function submitSearch() {
   flex-direction: column;
   background: var(--color-paper);
   color: var(--color-ink);
-}
-
-.topbar {
-  display: flex;
-  width: min(100% - (var(--space-lg) * 2), var(--layout-max));
-  margin-inline: auto;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-sm);
-  justify-content: space-between;
-}
-
-.topbar {
-  min-height: var(--topbar-height);
-  border-bottom: var(--rule-hairline) solid var(--color-rule);
-}
-
-.brand,
-.topbar__login,
-.search-panel__submit {
-  white-space: nowrap;
-}
-
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-sm);
-  color: var(--color-ink);
-  font-family: var(--font-display);
-  font-size: var(--text-md);
-  font-weight: 600;
-  line-height: 1;
-  text-decoration: none;
-}
-
-.brand:active {
-  color: var(--color-accent);
-}
-
-.brand__mark {
-  display: grid;
-  width: var(--control-height);
-  height: var(--control-height);
-  place-items: center;
-  border: var(--rule-hairline) solid var(--color-rule-strong);
-  border-radius: var(--radius-control);
-  color: var(--color-accent);
-}
-
-.topbar__auth {
-  display: grid;
-  min-width: 0;
-  justify-items: end;
-  gap: var(--space-2xs);
-  padding-block: var(--space-xs);
-}
-
-.topbar__auth-actions,
-.topbar__identity {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-}
-
-.topbar__auth-actions {
-  gap: var(--space-sm);
-}
-
-.topbar__identity {
-  gap: var(--space-xs);
-}
-
-.topbar__avatar {
-  display: grid;
-  width: 2rem;
-  height: 2rem;
-  flex: 0 0 auto;
-  place-items: center;
-  border: var(--rule-hairline) solid var(--color-rule);
-  border-radius: 50%;
-  object-fit: cover;
-}
-
-.topbar__avatar--fallback {
-  color: var(--color-muted);
-}
-
-.topbar__identity-name {
-  max-width: 12ch;
-  overflow: hidden;
-  color: var(--color-ink-2);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.topbar__auth-error {
-  max-width: 38ch;
-  margin: 0;
-  color: var(--color-error);
-  font-size: var(--text-xs);
-  line-height: 1.4;
-  text-align: right;
-}
-
-.topbar__login {
-  display: inline-flex;
-  min-height: var(--control-height);
-  align-items: center;
-  gap: var(--space-xs);
-  border: var(--rule-hairline) solid var(--color-rule);
-  border-radius: var(--radius-control);
-  padding-inline: var(--space-md);
-  background: var(--color-paper-2);
-  color: var(--color-muted);
-  font-size: var(--text-sm);
-  font-weight: 600;
-}
-
-.topbar__login--google {
-  border-color: #747775;
-  background: #fff;
-  color: #1f1f1f;
-}
-
-.topbar__google-icon {
-  width: 1.125rem;
-  height: 1.125rem;
-  flex: 0 0 auto;
-}
-
-.topbar__login[aria-busy='true'] {
-  cursor: wait;
-}
-
-.topbar__login:disabled,
-.search-panel__submit:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
 }
 
 .workspace {
@@ -689,12 +400,6 @@ function submitSearch() {
   transition: color var(--dur-short) var(--ease-out);
 }
 
-.brand:focus-visible,
-.topbar__login:focus-visible {
-  outline: var(--rule-focus) solid var(--color-focus);
-  outline-offset: var(--rule-focus);
-}
-
 .input-shell__action button:focus-visible,
 .search-panel__submit:focus-visible {
   outline: var(--rule-focus) solid var(--color-focus-dark);
@@ -751,9 +456,15 @@ function submitSearch() {
   color: var(--color-accent-ink);
   font-size: var(--text-base);
   font-weight: 700;
+  white-space: nowrap;
   transition:
     background-color var(--dur-short) var(--ease-out),
     transform var(--dur-micro) var(--ease-out);
+}
+
+.search-panel__submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .search-panel__submit[aria-busy='true'] {
@@ -772,10 +483,6 @@ function submitSearch() {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .brand:hover {
-    color: var(--color-accent);
-  }
-
   .input-shell:hover {
     background: var(--color-graphite-raised-2);
   }
@@ -790,7 +497,6 @@ function submitSearch() {
 }
 
 @media (min-width: 40rem) {
-  .topbar,
   .page-footer,
   .workspace {
     width: min(100% - (var(--space-xl) * 2), var(--layout-max));

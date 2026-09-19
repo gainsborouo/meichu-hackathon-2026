@@ -54,6 +54,7 @@ describe('HomeView', () => {
     expect(wrapper.get('label[for="location"]').text()).toContain('消費地點')
     expect(wrapper.get('label[for="amount"]').text()).toContain('金額（以新臺幣計算）')
     expect(wrapper.get('label[for="category"]').text()).toContain('品項或類別')
+    expect(wrapper.get('a[href="/upload-statement"]').text()).toContain('上傳帳單')
     expect(wrapper.text()).not.toContain('店家、品類或用途都可以作為查詢情境。')
     expect(wrapper.get('footer').text()).toBe('© 2026 Meichu Hackathon @ Google')
     expect(
