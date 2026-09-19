@@ -481,13 +481,13 @@ function closeAnalysis() {
   align-items: center;
   justify-content: center;
   gap: var(--space-xs);
-  border: var(--rule-hairline) solid var(--color-accent);
+  border: var(--rule-hairline) solid var(--color-action);
   border-radius: var(--radius-control);
   outline: var(--rule-focus) solid transparent;
   outline-offset: var(--rule-focus);
   padding-inline: var(--space-lg);
-  background: var(--color-accent);
-  color: var(--color-accent-ink);
+  background: var(--color-action);
+  color: var(--color-action-ink);
   font-size: var(--text-base);
   font-weight: 600;
   white-space: nowrap;
@@ -497,7 +497,7 @@ function closeAnalysis() {
 }
 
 .upload-submit:focus-visible {
-  outline-color: var(--color-focus);
+  outline-color: var(--color-action);
 }
 
 .upload-submit:active {
@@ -721,7 +721,8 @@ function closeAnalysis() {
   }
 
   .upload-submit:hover:not(:disabled) {
-    background: var(--color-accent-hover);
+    border-color: var(--color-action-hover);
+    background: var(--color-action-hover);
   }
 
   .analysis-dialog__header button:hover {

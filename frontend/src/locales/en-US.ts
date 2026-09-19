@@ -155,5 +155,9 @@ export default {
     campaignStarts: 'Offer starts',
     calendarDraft: 'Calendar Draft',
     calendarDraftHint: 'This is only a draft. No calendar event has been created.',
+    recordPurchase: 'Record purchase with {name}',
+    recordingPurchase: 'Recording purchase…',
+    purchaseRecorded: 'Purchase recorded',
+    purchaseRecordFailed: 'Could not record the purchase. Try again later.',
   },
 } as const

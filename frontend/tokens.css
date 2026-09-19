@@ -24,6 +24,23 @@
   --color-error-light: oklch(78% 0.12 25);
   --color-error-focus: oklch(75% 0.15 25);
   --color-success: oklch(48% 0.13 155);
+  --color-form-surface: oklch(39% 0.066 169);
+  --color-form-surface-raised: oklch(98.1994% 0.003992 160.917);
+  --color-form-surface-hover: oklch(96.5% 0.008 160.917);
+  --color-form-rule: oklch(55% 0.04 169);
+  --color-form-rule-strong: oklch(72.5% 0.035 169);
+  --color-form-ink: oklch(96% 0.008 169);
+  --color-form-muted: oklch(85% 0.018 169);
+  --color-form-accent: oklch(82.312% 0.13964 84.55);
+  --color-form-accent-hover: oklch(76% 0.145 83);
+  --color-form-accent-ink: oklch(24% 0.045 169);
+  --color-form-error: oklch(84% 0.12 25);
+  --color-form-success: oklch(78% 0.1 150);
+  --color-form-submit: #bfd1b1;
+  --color-form-submit-hover: #aec39e;
+  --color-action: var(--color-form-surface);
+  --color-action-hover: oklch(34% 0.06 169);
+  --color-action-ink: var(--color-form-ink);
 
   --font-display: 'Space Grotesk', 'Noto Sans TC', sans-serif;
   --font-body: 'Inter', 'Noto Sans TC', sans-serif;

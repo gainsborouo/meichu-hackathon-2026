@@ -9,7 +9,12 @@ import { i18n, setLocale } from '../../i18n'
 import { useAuthStore } from '../../stores/authStore'
 import RecommendationsView from '../RecommendationsView.vue'
 
+const apiMocks = vi.hoisted(() => ({
+  post: vi.fn<(url: string, data?: unknown) => Promise<unknown>>(),
+}))
+
 vi.mock('@/firebase', () => ({ auth: {} }))
+vi.mock('@/services/api', () => ({ api: apiMocks }))
 
 const STREAM_URL = '/api/v1/recommendations/stream'
 
@@ -187,6 +192,8 @@ function requestInit(call = 0) {
 
 beforeEach(() => {
   setLocale('zh-TW', false)
+  apiMocks.post.mockReset()
+  apiMocks.post.mockResolvedValue({})
   fetchMock.mockReset()
   fetchMock.mockImplementation(() => Promise.resolve(okResponse(chunked(fullStream))))
   vi.stubGlobal('fetch', fetchMock)
@@ -240,6 +247,9 @@ describe('RecommendationsView', () => {
     expect(JSON.parse(requestInit(1).body as string)).toMatchObject({ locale: 'en-US' })
     expect(wrapper.get('#ranking-title').text()).toBe('Best Card Right Now')
     expect(wrapper.get('[data-testid="best-now"]').text()).toContain('NT$224.70')
+    expect(wrapper.get('[data-testid="record-purchase-best-now"]').text()).toContain(
+      'Record purchase with Unicard',
+    )
   })
 
   it('shows searching progress in the loading state until the recommendation arrives', async () => {
@@ -307,6 +317,95 @@ describe('RecommendationsView', () => {
     expect(draft.text()).toContain('條件：需以 @GoGo 卡刷卡')
     expect(draft.text()).toContain('尚未建立')
     expect(draft.find('button').exists()).toBe(false)
+    expect(best.get('[data-testid="record-purchase-best-now"]').text()).toContain('Unicard')
+    expect(wait.get('[data-testid="record-purchase-wait-suggestion"]').text()).toContain('@GoGo 卡')
+  })
+
+  it('records one selected card with the criteria that produced the result', async () => {
+    let finishPurchase!: () => void
+    apiMocks.post.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishPurchase = () => resolve({})
+        }),
+    )
+
+    const { wrapper } = await mountRecommendations()
+    await wrapper.get<HTMLInputElement>('#recommendation-platform').setValue('蝦皮')
+
+    const bestButton = wrapper.get<HTMLButtonElement>('[data-testid="record-purchase-best-now"]')
+    const waitButton = wrapper.get<HTMLButtonElement>(
+      '[data-testid="record-purchase-wait-suggestion"]',
+    )
+    await waitButton.trigger('click')
+    await bestButton.trigger('click')
+
+    expect(apiMocks.post).toHaveBeenCalledExactlyOnceWith('/me/purchases', {
+      card_id: waitCard.id,
+      sale_id: recommendation.wait_suggestion.sale_id,
+      product_name: 'AirPods Pro',
+      store_name: 'momo',
+      price: 7490,
+      currency: 'TWD',
+    })
+    expect(bestButton.element.disabled).toBe(true)
+    expect(waitButton.element.disabled).toBe(true)
+    expect(waitButton.attributes('aria-busy')).toBe('true')
+
+    finishPurchase()
+    await settle()
+
+    expect(waitButton.attributes('data-state')).toBe('success')
+    expect(wrapper.get('[role="status"]').text()).toBe('已記錄這筆消費')
+  })
+
+  it('shows a recording error and allows retrying', async () => {
+    apiMocks.post.mockRejectedValueOnce(new Error('Request failed')).mockResolvedValueOnce({})
+    const { wrapper } = await mountRecommendations()
+    const bestButton = wrapper.get<HTMLButtonElement>('[data-testid="record-purchase-best-now"]')
+    const waitButton = wrapper.get<HTMLButtonElement>(
+      '[data-testid="record-purchase-wait-suggestion"]',
+    )
+
+    await bestButton.trigger('click')
+    await settle()
+
+    expect(wrapper.get('[role="alert"]').text()).toBe('無法記錄消費，請稍後再試。')
+    expect(bestButton.attributes('data-state')).toBe('error')
+    expect(bestButton.element.disabled).toBe(false)
+    expect(waitButton.element.disabled).toBe(false)
+
+    await bestButton.trigger('click')
+    await settle()
+
+    expect(apiMocks.post).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('[role="status"]').text()).toBe('已記錄這筆消費')
+  })
+
+  it('does not apply a stale purchase response to new search results', async () => {
+    let finishPurchase!: () => void
+    apiMocks.post.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishPurchase = () => resolve({})
+        }),
+    )
+    const { wrapper } = await mountRecommendations()
+
+    await wrapper.get('[data-testid="record-purchase-best-now"]').trigger('click')
+    await wrapper.get<HTMLInputElement>('#recommendation-platform').setValue('蝦皮')
+    await wrapper.get('form').trigger('submit')
+    await settle()
+
+    const newButton = wrapper.get<HTMLButtonElement>('[data-testid="record-purchase-best-now"]')
+    expect(newButton.attributes('data-state')).toBe('idle')
+    expect(newButton.element.disabled).toBe(false)
+
+    finishPurchase()
+    await settle()
+
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+    expect(newButton.attributes('data-state')).toBe('idle')
   })
 
   it('offers a registration link and unverified status when the backend says so', async () => {
@@ -350,6 +449,7 @@ describe('RecommendationsView', () => {
     expect(wrapper.find('[data-testid="no-best-now"]').text()).toContain(empty.explanation)
     expect(wrapper.find('.recommendation-card').exists()).toBe(false)
     expect(wrapper.find('[data-testid="best-now"]').exists()).toBe(false)
+    expect(wrapper.find('.purchase-button').exists()).toBe(false)
   })
 
   it('shows the existing error UI for an SSE error event and retries', async () => {

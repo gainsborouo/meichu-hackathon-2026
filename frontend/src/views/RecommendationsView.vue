@@ -7,6 +7,7 @@ import { useRoute, useRouter, type LocationQueryValue } from 'vue-router'
 
 import SiteHeader from '../components/SiteHeader.vue'
 import type { Locale } from '../i18n'
+import { api } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
 
 const STREAM_URL = '/api/v1/recommendations/stream'
@@ -78,6 +79,7 @@ interface SseEvent {
 }
 
 type SearchState = 'idle' | 'loading' | 'success' | 'error' | 'unauthenticated'
+type PurchaseState = 'idle' | 'submitting' | 'success' | 'error'
 
 class StreamFailure extends Error {}
 
@@ -103,10 +105,14 @@ const amountError = ref(false)
 const categoryError = ref(false)
 const searchState = ref<SearchState>('idle')
 const searchResult = ref<RecommendationResponse | null>(null)
+const resultRequest = ref<RecommendationRequest | null>(null)
 const requestErrorKey = ref('')
 const progressKey = ref(DEFAULT_PROGRESS_KEY)
 const failedImageIds = ref(new Set<string>())
+const purchaseState = ref<PurchaseState>('idle')
+const selectedCardId = ref<string | null>(null)
 let activeController: AbortController | null = null
+let purchaseRequestVersion = 0
 
 const formattedAmount = computed(() => amount.value.replace(/\B(?=(\d{3})+(?!\d))/g, ','))
 const requestError = computed(() => (requestErrorKey.value ? t(requestErrorKey.value) : ''))
@@ -272,6 +278,47 @@ function parseRecommendation(data: string): RecommendationResponse {
   return payload as unknown as RecommendationResponse
 }
 
+function resetPurchaseFeedback() {
+  purchaseRequestVersion += 1
+  purchaseState.value = 'idle'
+  selectedCardId.value = null
+  resultRequest.value = null
+}
+
+function purchaseStateFor(cardId: string): PurchaseState {
+  return selectedCardId.value === cardId ? purchaseState.value : 'idle'
+}
+
+function purchaseButtonText(cardId: string, cardName: string) {
+  const state = purchaseStateFor(cardId)
+  if (state === 'submitting') return t('recommendations.recordingPurchase')
+  if (state === 'success') return t('recommendations.purchaseRecorded')
+  return t('recommendations.recordPurchase', { name: cardName })
+}
+
+async function recordPurchase(card: CardRef, saleId: string) {
+  const request = resultRequest.value
+  if (!request || purchaseState.value === 'submitting' || purchaseState.value === 'success') return
+
+  const version = ++purchaseRequestVersion
+  selectedCardId.value = card.id
+  purchaseState.value = 'submitting'
+
+  try {
+    await api.post('/me/purchases', {
+      card_id: card.id,
+      sale_id: saleId,
+      product_name: request.product_name,
+      store_name: request.store_name,
+      price: request.price,
+      currency: request.currency,
+    })
+    if (version === purchaseRequestVersion) purchaseState.value = 'success'
+  } catch {
+    if (version === purchaseRequestVersion) purchaseState.value = 'error'
+  }
+}
+
 async function loadRecommendations() {
   if (!authReady.value || !validateSearch()) return
 
@@ -333,6 +380,7 @@ async function loadRecommendations() {
           (typeof stage === 'string' && STAGE_PROGRESS[stage]) || DEFAULT_PROGRESS_KEY
       } else if (event.event === 'recommendation') {
         searchResult.value = parseRecommendation(event.data)
+        resultRequest.value = request
         searchState.value = 'success'
         received = true
       } else if (event.event === 'error') {
@@ -359,6 +407,7 @@ async function loadRecommendations() {
 async function submitSearch() {
   if (!validateSearch()) {
     activeController?.abort()
+    resetPurchaseFeedback()
     searchResult.value = null
     searchState.value = 'idle'
     requestErrorKey.value = ''
@@ -366,7 +415,10 @@ async function submitSearch() {
   }
 
   if (routeHasCurrentQuery()) {
-    if (searchState.value !== 'loading') await loadRecommendations()
+    if (searchState.value !== 'loading') {
+      resetPurchaseFeedback()
+      await loadRecommendations()
+    }
     return
   }
 
@@ -375,6 +427,7 @@ async function submitSearch() {
 
 function prepareRouteSearch() {
   activeController?.abort()
+  resetPurchaseFeedback()
   syncFormFromRoute()
   searchResult.value = null
   requestErrorKey.value = ''
@@ -447,7 +500,10 @@ function markImageFailed(artworkId: string) {
 
 watch([() => route.fullPath, authReady, locale], prepareRouteSearch, { immediate: true })
 
-onBeforeUnmount(() => activeController?.abort())
+onBeforeUnmount(() => {
+  activeController?.abort()
+  purchaseRequestVersion += 1
+})
 </script>
 
 <template>
@@ -705,6 +761,20 @@ onBeforeUnmount(() => activeController?.abort())
                   <ExternalLink :size="15" aria-hidden="true" />
                 </a>
               </div>
+
+              <button
+                class="purchase-button"
+                type="button"
+                data-testid="record-purchase-best-now"
+                :data-state="purchaseStateFor(searchResult.best_now.card.id)"
+                :disabled="purchaseState === 'submitting' || purchaseState === 'success'"
+                :aria-busy="purchaseStateFor(searchResult.best_now.card.id) === 'submitting'"
+                @click="recordPurchase(searchResult.best_now.card, searchResult.best_now.sale_id)"
+              >
+                {{
+                  purchaseButtonText(searchResult.best_now.card.id, searchResult.best_now.card.name)
+                }}
+              </button>
             </div>
           </article>
 
@@ -803,9 +873,42 @@ onBeforeUnmount(() => activeController?.abort())
                 </p>
                 <p class="calendar-draft__hint">{{ t('recommendations.calendarDraftHint') }}</p>
               </div>
+
+              <button
+                class="purchase-button"
+                type="button"
+                data-testid="record-purchase-wait-suggestion"
+                :data-state="purchaseStateFor(searchResult.wait_suggestion.card.id)"
+                :disabled="purchaseState === 'submitting' || purchaseState === 'success'"
+                :aria-busy="purchaseStateFor(searchResult.wait_suggestion.card.id) === 'submitting'"
+                @click="
+                  recordPurchase(
+                    searchResult.wait_suggestion.card,
+                    searchResult.wait_suggestion.sale_id,
+                  )
+                "
+              >
+                {{
+                  purchaseButtonText(
+                    searchResult.wait_suggestion.card.id,
+                    searchResult.wait_suggestion.card.name,
+                  )
+                }}
+              </button>
             </div>
           </article>
         </div>
+
+        <p v-if="purchaseState === 'success'" class="purchase-feedback" role="status">
+          {{ t('recommendations.purchaseRecorded') }}
+        </p>
+        <p
+          v-else-if="purchaseState === 'error'"
+          class="purchase-feedback purchase-feedback--error"
+          role="alert"
+        >
+          {{ t('recommendations.purchaseRecordFailed') }}
+        </p>
       </section>
     </main>
 
@@ -945,19 +1048,20 @@ onBeforeUnmount(() => activeController?.abort())
 }
 
 .query-submit,
-.state-panel button {
+.state-panel button,
+.purchase-button {
   display: inline-flex;
   min-height: var(--control-height);
   align-items: center;
   justify-content: center;
   gap: var(--space-xs);
-  border: var(--rule-hairline) solid var(--color-accent);
+  border: var(--rule-hairline) solid var(--color-action);
   border-radius: var(--radius-control);
   outline: var(--rule-focus) solid transparent;
   outline-offset: var(--rule-focus);
   padding-inline: var(--space-lg);
-  background: var(--color-accent);
-  color: var(--color-accent-ink);
+  background: var(--color-action);
+  color: var(--color-action-ink);
   font-weight: 700;
   white-space: nowrap;
   transition:
@@ -967,6 +1071,10 @@ onBeforeUnmount(() => activeController?.abort())
 
 .query-submit:focus-visible,
 .state-panel button:focus-visible,
+.purchase-button:focus-visible {
+  outline-color: var(--color-action);
+}
+
 .source-links a:focus-visible {
   outline-color: var(--color-focus);
 }
@@ -1182,6 +1290,29 @@ onBeforeUnmount(() => activeController?.abort())
   text-underline-offset: 0.2em;
 }
 
+.purchase-button {
+  justify-self: start;
+}
+
+.purchase-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.purchase-button[data-state='success'] {
+  border-color: var(--color-success);
+  background: var(--color-success);
+}
+
+.purchase-feedback {
+  color: var(--color-success);
+  font-weight: 700;
+}
+
+.purchase-feedback--error {
+  color: var(--color-error);
+}
+
 .verification-badge--unverified {
   color: var(--color-muted);
 }
@@ -1251,8 +1382,10 @@ onBeforeUnmount(() => activeController?.abort())
 
 @media (hover: hover) and (pointer: fine) {
   .query-submit:hover,
-  .state-panel button:hover {
-    background: var(--color-accent-hover);
+  .state-panel button:hover,
+  .purchase-button:hover:not(:disabled) {
+    border-color: var(--color-action-hover);
+    background: var(--color-action-hover);
   }
 }
 
@@ -1293,7 +1426,8 @@ onBeforeUnmount(() => activeController?.abort())
 @media (prefers-reduced-motion: reduce) {
   .query-field input,
   .query-submit,
-  .state-panel button {
+  .state-panel button,
+  .purchase-button {
     transition-duration: var(--dur-reduced);
   }
 

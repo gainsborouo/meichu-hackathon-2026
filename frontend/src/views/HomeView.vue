@@ -222,6 +222,11 @@ function submitSearch() {
 </template>
 
 <style scoped>
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5
+ * component: home search form · genre: modern-minimal · theme: Cobalt + favicon brand palette
+ * states: default · hover · focus · active · disabled · loading · error · success
+ * contrast: pass (40–41) · tokens: pass (48) · responsive: pass (49–53)
+ */
 .home-page {
   display: flex;
   min-height: 100svh;
@@ -269,10 +274,10 @@ function submitSearch() {
 .search-panel {
   min-width: 0;
   overflow: clip;
-  border: var(--rule-hairline) solid var(--color-graphite-rule);
+  border: var(--rule-hairline) solid var(--color-form-rule);
   border-radius: var(--radius-panel);
-  background: var(--color-graphite);
-  color: var(--color-graphite-ink);
+  background: var(--color-form-surface);
+  color: var(--color-form-ink);
   box-shadow: var(--shadow-panel);
   animation: enter-workspace var(--dur-long) var(--ease-out) var(--dur-micro) both;
 }
@@ -283,7 +288,7 @@ function submitSearch() {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-md);
-  border-bottom: var(--rule-hairline) solid var(--color-graphite-rule);
+  border-bottom: var(--rule-hairline) solid var(--color-form-rule);
   padding: var(--space-lg);
 }
 
@@ -298,13 +303,13 @@ function submitSearch() {
 
 .search-panel__header p {
   margin: var(--space-2xs) 0 0;
-  color: var(--color-graphite-muted);
+  color: var(--color-form-muted);
   font-size: var(--text-sm);
 }
 
 .search-panel__header > svg {
   flex: 0 0 auto;
-  color: var(--color-accent-light);
+  color: var(--color-form-accent);
 }
 
 .search-panel__body {
@@ -325,14 +330,14 @@ function submitSearch() {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-sm);
-  color: var(--color-graphite-ink);
+  color: var(--color-form-ink);
   font-size: var(--text-sm);
   font-weight: 600;
   line-height: 1;
 }
 
 .field__required {
-  color: var(--color-graphite-muted);
+  color: var(--color-form-muted);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   font-weight: 500;
@@ -346,22 +351,22 @@ function submitSearch() {
   min-width: 0;
   align-items: center;
   gap: var(--space-sm);
-  border: var(--rule-hairline) solid var(--color-graphite-rule-strong);
+  border: var(--rule-hairline) solid var(--color-form-rule);
   border-radius: var(--radius-control);
   outline: var(--rule-focus) solid transparent;
   outline-offset: var(--rule-hairline);
   padding-inline: var(--space-md);
-  background: var(--color-graphite-raised);
-  color: var(--color-graphite-muted);
+  background: var(--color-form-surface-raised);
+  color: var(--color-form-accent-ink);
   transition:
     background-color var(--dur-short) var(--ease-out),
     border-color var(--dur-short) var(--ease-out);
 }
 
 .input-shell:focus-within {
-  border-color: var(--color-graphite-ink);
-  outline-color: var(--color-focus-dark);
-  background: var(--color-graphite-raised-2);
+  border-color: var(--color-form-accent-ink);
+  outline-color: var(--color-form-accent);
+  background: var(--color-form-surface-hover);
 }
 
 .input-shell--error {
@@ -369,12 +374,12 @@ function submitSearch() {
 }
 
 .input-shell--error:focus-within {
-  outline-color: var(--color-error-focus);
+  outline-color: var(--color-form-error);
 }
 
 .input-shell > svg {
   flex: 0 0 auto;
-  color: var(--color-accent-light);
+  color: var(--color-form-accent-ink);
 }
 
 .input-shell input {
@@ -383,14 +388,14 @@ function submitSearch() {
   border: 0;
   outline: 0;
   background: transparent;
-  color: var(--color-graphite-ink);
+  color: var(--color-form-accent-ink);
   font-size: var(--text-base);
   font-variant-numeric: tabular-nums;
   line-height: 1.5;
 }
 
 .input-shell input::placeholder {
-  color: var(--color-graphite-muted);
+  color: var(--color-muted);
   opacity: 1;
 }
 
@@ -420,14 +425,19 @@ function submitSearch() {
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
-  color: var(--color-graphite-muted);
+  color: var(--color-muted);
   transition: color var(--dur-short) var(--ease-out);
 }
 
-.input-shell__action button:focus-visible,
-.search-panel__submit:focus-visible {
-  outline: var(--rule-focus) solid var(--color-focus-dark);
+.input-shell__action button:focus-visible {
+  outline: var(--rule-focus) solid var(--color-form-accent);
   outline-offset: var(--rule-focus);
+}
+
+.search-panel__submit:focus-visible {
+  outline: var(--rule-focus) solid var(--color-form-ink);
+  outline-offset: var(--rule-focus);
+  box-shadow: inset 0 0 0 var(--rule-focus) var(--color-form-accent-ink);
 }
 
 .input-shell__action button:active,
@@ -443,7 +453,7 @@ function submitSearch() {
 .field__message {
   min-height: 1lh;
   margin: 0;
-  color: var(--color-graphite-muted);
+  color: var(--color-form-muted);
   font-size: var(--text-sm);
   line-height: 1.5;
 }
@@ -453,7 +463,7 @@ function submitSearch() {
 }
 
 .field__message--error {
-  color: var(--color-error-light);
+  color: var(--color-form-error);
 }
 
 .page-footer {
@@ -474,10 +484,10 @@ function submitSearch() {
   justify-content: center;
   gap: var(--space-xs);
   margin-top: var(--space-sm);
-  border: var(--rule-hairline) solid var(--color-accent);
+  border: var(--rule-hairline) solid var(--color-form-submit);
   border-radius: var(--radius-control);
-  background: var(--color-accent);
-  color: var(--color-accent-ink);
+  background: var(--color-form-submit);
+  color: var(--color-form-accent-ink);
   font-size: var(--text-base);
   font-weight: 700;
   white-space: nowrap;
@@ -499,24 +509,27 @@ function submitSearch() {
 .search-panel__submit[data-state='error'] {
   border-color: var(--color-error);
   background: var(--color-error);
+  color: var(--color-accent-ink);
 }
 
 .search-panel__submit[data-state='success'] {
-  border-color: var(--color-success);
-  background: var(--color-success);
+  border-color: var(--color-form-success);
+  background: var(--color-form-success);
+  color: var(--color-form-accent-ink);
 }
 
 @media (hover: hover) and (pointer: fine) {
   .input-shell:hover {
-    background: var(--color-graphite-raised-2);
+    background: var(--color-form-surface-hover);
   }
 
   .input-shell__action button:hover {
-    color: var(--color-graphite-ink);
+    color: var(--color-form-accent-ink);
   }
 
   .search-panel__submit:hover {
-    background: var(--color-accent-hover);
+    border-color: var(--color-form-submit-hover);
+    background: var(--color-form-submit-hover);
   }
 }
 

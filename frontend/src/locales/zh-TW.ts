@@ -151,5 +151,9 @@ export default {
     campaignStarts: '活動開始日',
     calendarDraft: '行事曆草稿',
     calendarDraftHint: '這只是草稿，尚未建立任何行事曆事件。',
+    recordPurchase: '使用「{name}」並記錄消費',
+    recordingPurchase: '正在記錄消費…',
+    purchaseRecorded: '已記錄這筆消費',
+    purchaseRecordFailed: '無法記錄消費，請稍後再試。',
   },
 } as const

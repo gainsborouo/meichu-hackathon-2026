@@ -3,7 +3,6 @@ import { computed, ref, watch } from 'vue'
 import {
   ChevronDown,
   CircleUserRound,
-  CreditCard,
   FileUp,
   Languages,
   LogOut,
@@ -91,9 +90,7 @@ function handleLocaleChange(event: Event) {
         :aria-label="t('navigation.homeLabel')"
         :aria-current="current === 'home' ? 'page' : undefined"
       >
-        <span class="brand__mark" aria-hidden="true">
-          <CreditCard :size="19" :stroke-width="1.8" />
-        </span>
+        <img class="brand__mark" src="/favicon.svg" alt="" aria-hidden="true" />
         <span class="brand__label">{{ t('common.brand') }}</span>
       </a>
     </div>
@@ -238,13 +235,10 @@ function handleLocaleChange(event: Event) {
 }
 
 .brand__mark {
-  display: grid;
+  display: block;
   width: var(--control-height);
   height: var(--control-height);
-  place-items: center;
-  border: var(--rule-hairline) solid var(--color-rule-strong);
-  border-radius: var(--radius-control);
-  color: var(--color-accent);
+  flex: 0 0 auto;
 }
 
 .topbar__left,
