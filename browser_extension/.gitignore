@@ -1,0 +1,10 @@
+node_modules/
+.wxt/
+.output/
+coverage/
+*firebase-adminsdk*.json
+*service-account*.json
+# The repository's Python ignore rules exclude every lib/ directory.
+!lib/
+!lib/**
+AGENTS.md

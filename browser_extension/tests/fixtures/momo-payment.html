@@ -1,0 +1,13 @@
+<!-- Structure observed in saved momo payment DOM; all product/amount data is synthetic. -->
+<div id="orderListBox" style="display: none">
+  <div class="v-product-info"><input type="checkbox" checked><a class="product-caption-text">測試耳機</a></div>
+  <div class="v-product-info"><input type="checkbox" checked><a class="product-caption-text">測試保護殼</a></div>
+  <div class="v-product-info"><input type="checkbox"><a class="product-caption-text">未選取商品</a></div>
+</div>
+<div id="paymentType"><h3>付款方式：</h3><ul id="paymentRadioBtn">
+  <li><label for="CARD_ID">信用卡一次付清</label><input type="radio" id="CARD_ID" name="rdoPayment"></li>
+  <li><label for="CARDALLOT_ID">信用卡分期</label><input type="radio" id="CARDALLOT_ID" name="rdoPayment"></li>
+  <li><label for="COD_ID">貨到付款</label><input type="radio" id="COD_ID" name="rdoPayment" checked></li>
+</ul></div>
+<div class="totalamount"><table><tbody><tr><th>應付金額</th><td><b id="paySum">2,580</b></td></tr></tbody></table></div>
+<button type="button" id="orderConfirm">確認訂購</button>
