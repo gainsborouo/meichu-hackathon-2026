@@ -1,21 +1,26 @@
-"""Usage: uv run python -m app.cli.import_sales [path/to/campaigns.json]"""
+"""Usage: uv run python -m app.cli.import_sales [path/to/campaigns.json]
+
+Accepts the crawler's object format (base_benefits + campaigns) or the older bare list.
+"""
 
 import argparse
 import asyncio
 from pathlib import Path
 
 from app.db.session import dispose_engine, get_sessionmaker
-from app.services.sales_import import DEFAULT_CAMPAIGNS_PATH, import_campaigns, load_campaigns
+from app.services.sales_import import DEFAULT_CAMPAIGNS_PATH, import_dataset, load_dataset
 
 
 async def main(path: Path) -> None:
-    items = load_campaigns(path)
+    dataset = load_dataset(path)
     try:
         async with get_sessionmaker()() as session, session.begin():
-            stats = await import_campaigns(session, items)
+            stats = await import_dataset(session, dataset)
     finally:
         await dispose_engine()
-    print(f"sales import from {path}: {stats}")
+    print(f"import from {path}:")
+    print(f"  card_benefits: {stats['benefits']}")
+    print(f"  sales:         {stats['sales']}")
 
 
 if __name__ == "__main__":

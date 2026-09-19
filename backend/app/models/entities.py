@@ -99,6 +99,47 @@ class UserAnalysis(Base):
     user_card: Mapped["UserCard"] = relationship()
 
 
+class CardBenefit(Base):
+    """A card's standing reward (e.g. 1% on everyday spend), as opposed to a limited campaign.
+
+    `effective_end` NULL is valid and means "no end date published": long-running base
+    rewards often have none. It is not a promise the reward still exists; that is what
+    `official_verified_at` and the crawler's page-level checks are for.
+    """
+
+    __tablename__ = "card_benefits"
+    __table_args__ = (
+        UniqueConstraint("card_id", "title"),
+        sa.CheckConstraint(
+            "effective_end IS NULL OR effective_start IS NULL OR effective_end >= effective_start",
+            name="valid_range",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    card_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("cards.id", ondelete="CASCADE"), index=True
+    )
+    title: Mapped[str] = mapped_column(sa.Text)
+    reward: Mapped[str] = mapped_column(sa.Text)
+    conditions: Mapped[str | None] = mapped_column(sa.Text)
+    reward_rules: Mapped[list] = mapped_column(
+        JSONType, default=list, server_default=sa.text("'[]'")
+    )
+    effective_start: Mapped[date | None] = mapped_column(sa.Date)
+    effective_end: Mapped[date | None] = mapped_column(sa.Date)
+    source_url: Mapped[str] = mapped_column(sa.Text)
+    source_payload: Mapped[dict] = mapped_column(
+        JSONType, default=dict, server_default=sa.text("'{}'")
+    )
+    fetched_at: Mapped[datetime] = _ts()
+    official_verified_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    created_at: Mapped[datetime] = _ts()
+    updated_at: Mapped[datetime] = _ts_updated()
+
+    card: Mapped[Card] = relationship()
+
+
 class Sale(Base):
     __tablename__ = "sales"
 

@@ -57,7 +57,7 @@ async def stream_recommendation(
             if pre.has_candidates:
                 yield _sse("searching", {"stage": "official_verification"})
             result, verified = await service.recommend(pre, agent)
-            await service.mark_verified(session, verified)
+            await service.mark_verified(session, verified.sale_ids, verified.benefit_ids)
         except service.RecommendationError as exc:
             yield _sse("error", {"message": str(exc)})
             return

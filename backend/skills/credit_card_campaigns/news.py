@@ -1,249 +1,190 @@
+"""Manual crawler: builds credit_card_campaigns.json from official bank pages.
+
+    uv run python skills/credit_card_campaigns/news.py     (run from backend/)
+
+Pipeline per card (all rules live in app/services/campaign_crawler.py):
+  1. The backend generates the search queries (site:<official bank domain> + card + year).
+  2. The backend opens the official https pages itself (app.services.official_pages).
+  3. The model only extracts base benefits and campaigns from those opened pages.
+  4. Every extracted item is re-validated against the opened pages; anything unofficial,
+     unopened, expired, undated (campaigns) or without a parseable reward is dropped.
+  5. Results are MERGED into the canonical file: a card that crawled successfully replaces its
+     own entries, a card that failed keeps what the file already had. The merged JSON is
+     written to a temp file and atomically replaces the canonical one, and only if this run
+     produced at least one verified item and the old file was readable. Otherwise the old
+     file is kept and the exit code is non-zero.
+
+Import the result with `uv run python -m app.cli.import_sales`.
+"""
+
 import asyncio
 import csv
 import json
 import logging
 import os
 import re
-from enum import Enum
-from typing import Optional
-from dotenv import load_dotenv
-from duckduckgo_search import DDGS
-from google.adk.agents import Agent
-from google.adk.apps import App
-from google.adk.models.lite_llm import LiteLlm
-from google.adk.runners import InMemoryRunner
-from google.genai import types
-from pydantic import BaseModel, Field
+import sys
+from datetime import UTC, date, datetime
+from pathlib import Path
+from typing import Any
 
-# ---------------------------
-# 0. Setup & Configuration
-# ---------------------------
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(BACKEND_DIR))
+
+from dotenv import load_dotenv  # noqa: E402
+from ddgs import DDGS  # noqa: E402
+from google.adk.agents import Agent  # noqa: E402
+from google.adk.apps import App  # noqa: E402
+from google.adk.models.lite_llm import LiteLlm  # noqa: E402
+from google.adk.runners import InMemoryRunner  # noqa: E402
+from google.genai import types  # noqa: E402
+
+from app.services.campaign_crawler import crawl_card, finalize  # noqa: E402
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger("card_crawler")
 
-load_dotenv()
+CURRENT_DIR = Path(__file__).resolve().parent
+CSV_FILE_PATH = CURRENT_DIR / "cards.csv"
+OUTPUT_PATH = CURRENT_DIR / "credit_card_campaigns.json"
+SEARCH_RESULTS_PER_QUERY = 8
 
+EXTRACTION_INSTRUCTION = """
+You extract credit-card rewards from official bank web pages that were already opened for you.
+The user message is one JSON object: today, bank, card, and pages (each with url, title, text).
 
-def get_required_setting(name: str) -> str:
-    val = os.environ.get(name)
-    if not val or val.startswith("replace-with-"):
-        raise SystemExit(f"Missing required environment variable: {name}")
-    return val
-
-
-BASE_URL = get_required_setting("LLM_BASE_URL")
-API_KEY = get_required_setting("LLM_API_KEY")
-MODEL_NAME = get_required_setting("LLM_MODEL")
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-CSV_FILE_PATH = os.path.join(CURRENT_DIR, "cards.csv")
-
-
-# ---------------------------
-# 1. Pydantic Schemas
-# ---------------------------
-class RecurrenceType(str, Enum):
-    ONCE = "once"
-    MONTHLY = "monthly"
-    QUARTERLY = "quarterly"
-    YEARLY = "yearly"
-
-
-class CreditCardCampaign(BaseModel):
-    id: str = Field(
-        description="Unique id format example: bankcode-cardcode-YYYYMM-abcd"
-    )
-    bank: str = Field(description="Bank name")
-    card: str = Field(description="Credit card name")
-    title: str = Field(description="Campaign or privilege title")
-    register_from: Optional[str] = Field(None, description="Registration start date (YYYY-MM-DD) or null")
-    register_until: Optional[str] = Field(None, description="Registration end date (YYYY-MM-DD) or null")
-    register_url: Optional[str] = Field(None, description="Registration URL or null")
-    recurrence: RecurrenceType = Field(description="Recurrence: once, monthly, quarterly, yearly")
-    campaign_start: str = Field(description="Start date (YYYY-MM-DD)")
-    campaign_end: str = Field(description="End date (YYYY-MM-DD)")
-    reward: str = Field(description="Reward details, rates, caps, and minimum spend conditions")
-    quota_limited: bool = Field(description="True if limited quota or requires early registration")
-    source_url: str = Field(description="Source URL")
-    evidence: str = Field(description="Direct text quote from the page supporting the claim")
-    confidence: float = Field(description="Confidence score (0.0 to 1.0)")
-
-
-class CardCampaignResults(BaseModel):
-    campaigns: list[CreditCardCampaign]
-
-
-# ---------------------------
-# 2. Tools for ADK Agent
-# ---------------------------
-def web_search(query: str) -> str:
-    """Search the web for up-to-date credit card promotions and benefits.
-
-    Args:
-        query: The search keywords, e.g. "中國信託 LINE Pay 聯名卡 權益 活動".
-    """
-    try:
-        with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=5))
-            if not results:
-                return "No search results found."
-            formatted = []
-            for r in results:
-                formatted.append(f"Title: {r.get('title')}\nURL: {r.get('href')}\nSnippet: {r.get('body')}\n")
-            return "\n---\n".join(formatted)
-    except Exception as exc:
-        return f"Search error: {exc}"
-
-
-# ---------------------------
-# 3. ADK Agent & Runner Builder
-# ---------------------------
-# 注意：這裡不要放任何包含大括號的 JSON Schema，避免 ADK 觸發 KeyError
-AGENT_INSTRUCTION = """
-You are an expert financial research assistant.
-Your goal is to find active, up-to-date standard reward tiers and registration promotions for the requested credit card.
-
-Instructions:
-1. Always call `web_search` with precise keywords to locate the official bank terms and promotions.
-2. Extract dates, caps, thresholds, and limits accurately.
-3. You MUST reply ONLY with a valid raw JSON object conforming strictly to the requested JSON Schema provided in the prompt.
-4. Do NOT wrap the JSON in Markdown code fences like ```json ... ```. Output raw JSON only.
+Rules:
+1. Use ONLY the supplied pages. Do not search, browse, or use outside knowledge.
+2. "source_url" must be exactly one of the supplied page urls, the page the item comes from.
+3. "evidence" must be a short, non-empty quote copied verbatim from that page's text.
+4. base_benefits: the card's standing everyday rewards (for example 1% on general spending).
+   They may have no end date (effective_end null), but you must also give "validity_evidence":
+   a short quote copied verbatim from the page that shows the reward is in force TODAY, such as
+   a start date on or before today, an end date on or after today, or wording like "目前" /
+   "現行". If the page states an end date that has passed, or only describes past years, do
+   not output the benefit at all; effective_end=null does not fix that.
+5. campaigns: limited-time offers. Each needs campaign_start and campaign_end (YYYY-MM-DD)
+   that the page actually states, and an "evidence" quote (verbatim) that contains, or sits
+   right next to, those dates and the reward rate. If the page states no dates, or you only
+   see a campaign title, do not output it. Never output a campaign whose campaign_end is
+   before today.
+6. Put the reward wording in "reward" exactly with its rates, caps and thresholds. Do not
+   invent numbers. A reward with no rate or percentage is not usable, so skip it.
+7. If a campaign needs registration, put the registration page in register_url.
+8. Reply with ONE raw JSON object and nothing else (no code fences):
+   base_benefits: list of objects with title, reward, conditions, effective_start,
+   effective_end, source_url, evidence, validity_evidence, confidence (0 to 1).
+   campaigns: list of objects with title, register_from, register_until, register_url,
+   recurrence (once|monthly|quarterly|yearly), campaign_start, campaign_end, reward,
+   quota_limited, source_url, evidence, confidence (0 to 1).
+   Use empty lists when nothing qualifies.
 """
 
-model = LiteLlm(
-    model=f"openai/{MODEL_NAME}",
-    api_base=BASE_URL,
-    api_key=API_KEY,
-)
 
-card_agent = Agent(
-    name="card_crawler_agent",
-    model=model,
-    instruction=AGENT_INSTRUCTION,
-    tools=[web_search],
-)
-
-app = App(name="card_crawler_app", root_agent=card_agent)
-runner = InMemoryRunner(app=app)
+def require_env(name: str) -> str:
+    value = os.environ.get(name)
+    if not value or value.startswith("replace-with-"):
+        raise SystemExit(f"Missing required environment variable: {name}")
+    return value
 
 
-# ---------------------------
-# 4. Agent Execution Handler
-# ---------------------------
 def clean_json_string(text: str) -> str:
     """Strip potential markdown code blocks if the model outputs them."""
-    pattern = r"^```(?:json)?\s*(.*?)\s*```$"
-    match = re.search(pattern, text.strip(), re.DOTALL)
+    match = re.search(r"^```(?:json)?\s*(.*?)\s*```$", text.strip(), re.DOTALL)
     return match.group(1).strip() if match else text.strip()
 
 
-async def process_single_card(bank: str, card: str, feature: str, session_id: str) -> list[dict]:
-    schema_str = json.dumps(
-        CardCampaignResults.model_json_schema(), ensure_ascii=False, indent=2
-    )
-
-    prompt = f"""Target Credit Card:
-        Bank: {bank}
-        Card: {card}
-        Focus: {feature}
-
-        CRITICAL TASK REQUIREMENTS:
-        1. Do NOT just return static tier benefits. You MUST actively search for current "登錄" (registration) campaigns.
-        2. Formulate multiple precise search queries via `web_search`:
-        - Query 1: "{bank} {card} 登錄加碼 活動"
-        - Query 2: "{bank} 信用卡 活動登錄專區 最新"
-        - Query 3: "{bank} {card} 回饋 上限"
-        3. For banks like 玉山銀行 or 國泰世華銀行, there are usually separate registration promotions for online shopping, dining, or travel. Extract each distinct campaign as an independent entry in the list.
-
-        Strictly format your response to match this JSON Schema:
-        {schema_str}
-    """
-    accumulated_text = ""
-
-    async for event in runner.run_async(
-        user_id="local_developer",
-        session_id=session_id,
-        new_message=types.Content(
-            role="user",
-            parts=[types.Part.from_text(text=prompt)],
-        ),
-    ):
-        if event.author == card_agent.name and event.content and event.content.parts:
-            for part in event.content.parts:
-                if part.text:
-                    accumulated_text += part.text
-
-    cleaned_json = clean_json_string(accumulated_text)
-    try:
-        parsed_data = CardCampaignResults.model_validate_json(cleaned_json)
-        return [c.model_dump() for c in parsed_data.campaigns]
-    except Exception as exc:
-        logger.warning("Failed to parse JSON output for %s %s: %s", bank, card, exc)
-        logger.debug("Raw output received: %s", accumulated_text)
-        return []
+def ddgs_search(query: str) -> list[str]:
+    with DDGS() as client:
+        results = client.text(query, max_results=SEARCH_RESULTS_PER_QUERY)
+    return [r["href"] for r in results if isinstance(r.get("href"), str)]
 
 
-# ---------------------------
-# 5. Dataset & Main Pipeline
-# ---------------------------
-def load_cards_from_csv(file_path: str) -> list[dict]:
-    if not os.path.exists(file_path):
+def load_cards_from_csv(file_path: Path) -> list[dict]:
+    if not file_path.exists():
         raise FileNotFoundError(f"找不到卡片清單檔案: {file_path}")
 
     cards = []
     current_bank = ""
-
-    with open(file_path, mode="r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
+    with file_path.open(mode="r", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
             bank = row.get("發卡銀行", "").strip()
             if bank:
                 current_bank = bank
-
             card_name = row.get("核心主力卡款", "").strip()
-            feature = row.get("主要主打場景 / 特色", "").strip()
-
             if card_name:
-                cards.append({
-                    "bank": current_bank,
-                    "card": card_name,
-                    "feature": feature,
-                })
-
+                cards.append({"bank": current_bank, "card": card_name})
     return cards
 
 
-async def main():
-    cards = load_cards_from_csv(CSV_FILE_PATH)
-    all_campaigns = []
+def build_extractor(today: date):
+    """Model call: extraction only, no tools. `today` is stated in the instruction."""
+    instruction = (
+        f"Today is {today.isoformat()}. "
+        "Never output a campaign whose campaign_end is before today.\n" + EXTRACTION_INSTRUCTION
+    )
+    agent = Agent(
+        name="card_extractor",
+        model=LiteLlm(
+            model=f"openai/{require_env('LLM_MODEL')}",
+            api_base=require_env("LLM_BASE_URL"),
+            api_key=require_env("LLM_API_KEY"),
+        ),
+        # A callable is used verbatim; a plain string's {...} would be read as ADK state.
+        instruction=lambda _ctx: instruction,
+    )
+    app = App(name="card_extractor_app", root_agent=agent)
+    runner = InMemoryRunner(app=app)
+    counter = 0
 
-    print(f"Starting batch crawler for {len(cards)} credit cards via ADK...")
-
-    for idx, item in enumerate(cards, start=1):
-        session_id = f"session_card_{idx}"
+    async def extract(payload: dict[str, Any]) -> Any:
+        nonlocal counter
+        counter += 1
+        session_id = f"extract_{counter}"
         await runner.session_service.create_session(
-            app_name=app.name,
-            user_id="local_developer",
-            session_id=session_id,
+            app_name=app.name, user_id="crawler", session_id=session_id
         )
-
-        logger.info("[%d/%d] Fetching: %s - %s", idx, len(cards), item["bank"], item["card"])
-        campaigns = await process_single_card(
-            bank=item["bank"],
-            card=item["card"],
-            feature=item["feature"],
+        text = ""
+        async for event in runner.run_async(
+            user_id="crawler",
             session_id=session_id,
-        )
-        all_campaigns.extend(campaigns)
-        logger.info("Found %d campaigns", len(campaigns))
+            new_message=types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=json.dumps(payload, ensure_ascii=False))],
+            ),
+        ):
+            if event.author == agent.name and event.content and event.content.parts:
+                text += "".join(part.text or "" for part in event.content.parts)
+        return json.loads(clean_json_string(text))
 
+    return extract
+
+
+async def main() -> int:
+    load_dotenv()
+    today = date.today()
+    cards = load_cards_from_csv(CSV_FILE_PATH)
+    extract = build_extractor(today)
+
+    logger.info("Crawling %d cards as of %s", len(cards), today)
+    results = []
+    for idx, item in enumerate(cards, start=1):
+        logger.info("[%d/%d] %s - %s", idx, len(cards), item["bank"], item["card"])
+        result = await crawl_card(
+            item["bank"], item["card"], today=today, search=ddgs_search, extract=extract
+        )
+        logger.info(
+            "  -> %d base benefits, %d campaigns, %d dropped%s",
+            len(result.base_benefits),
+            len(result.campaigns),
+            len(result.dropped),
+            f" (FAILED: {result.error})" if result.error else "",
+        )
+        results.append(result)
         await asyncio.sleep(1)
 
-    output_path = os.path.join(CURRENT_DIR, "credit_card_campaigns.json")
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(all_campaigns, f, ensure_ascii=False, indent=2)
-
-    print(f"\nCompleted! Saved {len(all_campaigns)} records to {output_path}")
+    return finalize(results, OUTPUT_PATH, now=datetime.now(UTC))
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    sys.exit(asyncio.run(main()))

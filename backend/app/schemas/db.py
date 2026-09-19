@@ -74,6 +74,18 @@ class SaleRead(_ORM):
     evidence: str | None
 
 
+class CardBenefitRead(_ORM):
+    id: uuid.UUID
+    card_id: uuid.UUID
+    title: str
+    reward: str
+    conditions: str | None
+    effective_start: date | None
+    effective_end: date | None
+    source_url: str
+    official_verified_at: datetime | None
+
+
 class UserSaleRead(_ORM):
     id: uuid.UUID
     sale: SaleRead

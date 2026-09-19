@@ -26,8 +26,11 @@ class OfficialSource(BaseModel):
 
 
 class BestNow(BaseModel):
+    # "base_benefit": the card's standing reward; "campaign": a limited-time offer.
+    candidate_type: Literal["base_benefit", "campaign"]
     card: CardRef
-    sale_id: str
+    sale_id: str | None = None  # set for campaigns
+    benefit_id: str | None = None  # set for base benefits
     campaign_title: str
     estimated_reward_twd: float
     rate_display: str

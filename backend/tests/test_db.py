@@ -43,6 +43,9 @@ def test_migration_renders_postgres_sql() -> None:
         "registration_campaigns_enabled",
         "campaign_start",
         "official_verified_at",
+        "CREATE TABLE card_benefits",
+        "ck_card_benefits_valid_range",
+        "uq_card_benefits_card_id",
         "google_refresh_token",
         "ON DELETE SET NULL",
         "artwork_id",
@@ -196,3 +199,12 @@ def test_migration_0004_backfills_dates_from_source_payload() -> None:
     assert got["only-end"] == (None, date(2026, 6, 30))
     assert got["bad"] == (None, None) and got["none"] == (None, None)
     assert got["not-a-dict"] == (None, None)
+
+
+def test_alembic_has_a_single_head_and_card_benefits_chains_from_0004() -> None:
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    script = ScriptDirectory.from_config(Config(str(BACKEND / "alembic.ini")))
+    assert script.get_heads() == ["0005"]
+    assert script.get_revision("0005").down_revision == "0004"

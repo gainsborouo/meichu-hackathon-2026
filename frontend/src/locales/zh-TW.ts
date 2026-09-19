@@ -136,6 +136,8 @@ export default {
     results: '推薦結果',
     rankingTitle: '目前最適合的信用卡',
     bestNow: '目前最佳',
+    typeBaseBenefit: '基本回饋',
+    typeCampaign: '限時活動',
     verified: '已查證官方來源',
     unverified: '尚未查證官方來源',
     estimatedReward: '預估回饋',

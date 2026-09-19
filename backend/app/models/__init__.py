@@ -1,6 +1,7 @@
 from app.models.entities import (
     CalendarEvent,
     Card,
+    CardBenefit,
     Sale,
     User,
     UserAnalysis,
@@ -11,6 +12,7 @@ from app.models.entities import (
 __all__ = [
     "CalendarEvent",
     "Card",
+    "CardBenefit",
     "Sale",
     "User",
     "UserAnalysis",

@@ -17,7 +17,7 @@ from app.api.v1.routes import calendar as calendar_route
 from app.core.config import get_settings
 from app.db.session import get_session
 from app.main import create_app
-from app.models import CalendarEvent, Card, Sale, UserSale
+from app.models import CalendarEvent, Card, CardBenefit, Sale, UserSale
 from app.repositories import cards as cards_repo
 from app.schemas.recommendations import RecommendationRequest
 from app.services import purchase_recommendation as service
@@ -157,7 +157,7 @@ async def test_no_matching_candidates_does_not_fall_back_and_skips_the_model(ses
     await session.flush()
     agent = FakeAgent()
     result, verified = await service.recommend(await pre(session, world), agent)
-    assert verified == []
+    assert verified.sale_ids == [] and verified.benefit_ids == []
     assert result.mode == "registration"
     assert result.best_now is None and result.wait_suggestion is None
     assert "需登錄" in result.explanation
@@ -625,7 +625,7 @@ def test_search_queries_cannot_leak_price_or_spending_text():
 
 
 async def test_search_results_alone_are_not_evidence(monkeypatch):
-    import duckduckgo_search
+    import ddgs
 
     from app.services.recommendation_agent import _make_web_search
 
@@ -639,7 +639,7 @@ async def test_search_results_alone_are_not_evidence(monkeypatch):
         def text(self, query, max_results=5):
             return [{"title": "官方", "href": "https://www.esunbank.com/promo", "body": "b"}]
 
-    monkeypatch.setattr(duckduckgo_search, "DDGS", FakeDDGS)
+    monkeypatch.setattr(ddgs, "DDGS", FakeDDGS)
     tool = _make_web_search(
         {"held_card_names": [], "price": 100, "allowed_terms": (), "context_text": ""}
     )
@@ -821,3 +821,212 @@ async def test_redirect_leaving_the_bank_records_nothing(monkeypatch):
     )
     assert tool(INITIAL).startswith("NOT OPENED")
     assert opened == set()
+
+
+# --- base benefit fallback ------------------------------------------------
+
+BASE_URL = "https://www.esunbank.com/base"
+
+
+def benefit(card, title, rate, *, start=None, end=None, reg=False, platforms=()):
+    return CardBenefit(
+        card_id=card.id,
+        title=title,
+        reward=f"一般消費 {rate * 100:g}% 回饋",
+        reward_rules=[rule(rate, reg=reg, platforms=platforms)],
+        effective_start=start,
+        effective_end=end,
+        source_url=BASE_URL,
+        source_payload={},
+    )
+
+
+@pytest_asyncio.fixture
+async def bare(session):
+    """A holder of Unicard + @GoGo whose only campaigns are expired or off-target.
+
+    This is the situation that used to produce no candidates at all: a bank publishes a
+    standing reward, but every dated campaign is over or for another platform.
+    """
+    user = await upsert_user(session, google_uid="bare", email="bare@x.com")
+    uni = await cards_repo.get_or_create_card(session, bank_name="玉山銀行", name="Unicard")
+    gogo = await cards_repo.get_or_create_card(session, bank_name="台新銀行", name="@GoGo 卡")
+    await cards_repo.add_user_card(session, user.id, uni.id)
+    await cards_repo.add_user_card(session, user.id, gogo.id)
+    yesterday, tomorrow = TODAY - timedelta(days=1), TODAY + timedelta(days=1)
+    session.add_all(
+        [
+            sale("expired-uni", uni, [rule(0.03)], end=yesterday),  # crawler's stale 2025 data
+            sale("shopee-only", uni, [rule(0.08, platforms=["shopee"])]),  # not for momo
+            sale("reg-uni", uni, [rule(0.05, reg=True)], register_url="https://www.esunbank.com/r"),
+            benefit(uni, "一般消費", 0.01),  # no end date: legal for a standing reward
+            benefit(gogo, "一般消費", 0.012, start=yesterday),
+            benefit(uni, "已結束的基本權益", 0.09, end=yesterday),
+            benefit(gogo, "尚未生效的基本權益", 0.09, start=tomorrow),
+            benefit(uni, "需登錄的基本權益", 0.09, reg=True),
+        ]
+    )
+    await session.flush()
+    return user
+
+
+def pick_base(card_name):
+    """Fake model: choose the base-benefit candidate of the named card."""
+
+    def answer(payload):
+        cand = next(
+            c
+            for c in payload["now_candidates"]
+            if c["candidate_type"] == "base_benefit" and c["card"]["name"] == card_name
+        )
+        return opened(
+            {
+                "best_now": {
+                    "candidate_id": cand["candidate_id"],
+                    "reason": "基本回饋",
+                    "official_sources": official(),
+                },
+                "explanation": "",
+            }
+        )
+
+    return answer
+
+
+async def test_only_expired_campaigns_but_effective_base_benefit_still_recommends(session, bare):
+    p = await pre(session, bare)
+    assert {c["candidate_type"] for c in p.now_candidates} == {"base_benefit"}
+    assert p.future_candidates == []
+
+    agent = FakeAgent()
+    agent.answer = pick_base("Unicard")
+    response, verified = await service.recommend(p, agent)
+
+    assert len(agent.calls) == 1, "the model must be consulted even with no live campaign"
+    best = response.best_now
+    assert best is not None, "a base benefit means the answer is not null"
+    assert best.candidate_type == "base_benefit"
+    assert best.sale_id is None and best.benefit_id is not None
+    assert best.card.name == "Unicard" and best.rate_display == "1%"
+    assert best.estimated_reward_twd == 74.9
+    assert best.requires_registration is False
+    assert verified.benefit_ids == [best.benefit_id] and verified.sale_ids == []
+
+
+async def test_offtarget_campaign_falls_back_to_the_base_benefit(session, bare):
+    p = await pre(session, bare, store_name="momo")
+    now_ids = ids(p.now_candidates)
+    assert "shopee-only#0" not in now_ids and "expired-uni#0" not in now_ids
+    assert {c["candidate_type"] for c in p.now_candidates} == {"base_benefit"}
+    assert {c["card"]["name"] for c in p.now_candidates} == {"Unicard", "@GoGo 卡"}
+
+    # On shopee the platform campaign appears next to the base benefits as one more candidate.
+    p2 = await pre(session, bare, store_name="蝦皮")
+    assert {c["candidate_type"] for c in p2.now_candidates} == {"base_benefit", "campaign"}
+    assert "shopee-only#0" in ids(p2.now_candidates)
+
+
+async def test_base_benefit_effective_window_filters(session, bare):
+    p = await pre(session, bare)
+    titles = {(c["card"]["name"], c["title"]) for c in p.now_candidates}
+    assert ("Unicard", "一般消費") in titles  # no end date: legal and effective
+    assert ("@GoGo 卡", "一般消費") in titles  # started yesterday
+    assert not any("已結束" in t or "尚未生效" in t for _, t in titles)
+    by_title = {c["title"]: c for c in p.now_candidates}
+    assert by_title["一般消費"]["effective_end"] is None
+    assert p.excluded["base_benefit_not_effective"] == 0  # filtered in SQL before this stage
+
+
+async def test_registration_off_uses_base_plus_free_campaigns_only(session, bare):
+    bare.registration_campaigns_enabled = False
+    session.add(sale("free-uni", await _card(session, "Unicard"), [rule(0.02)]))
+    await session.flush()
+    p = await pre(session, bare)
+    assert p.mode == "no_registration"
+    assert {c["candidate_type"] for c in p.now_candidates} == {"base_benefit", "campaign"}
+    assert all(c["requires_registration"] is False for c in p.now_candidates)
+    assert "free-uni#0" in ids(p.now_candidates) and "reg-uni#0" not in ids(p.now_candidates)
+    assert not any("需登錄" in c["title"] for c in p.now_candidates)
+
+
+async def test_registration_on_uses_registration_campaigns_only_and_never_falls_back(session, bare):
+    bare.registration_campaigns_enabled = True
+    session.add(sale("free-uni", await _card(session, "Unicard"), [rule(0.02)]))
+    await session.flush()
+    p = await pre(session, bare)
+    assert p.mode == "registration"
+    assert ids(p.now_candidates) == {"reg-uni#0"}
+    assert all(c["candidate_type"] == "campaign" for c in p.now_candidates)
+    # The three effective base benefits are withheld in this mode, not used as a fallback.
+    assert p.excluded["base_benefit_registration_mode"] == 3
+
+    # Remove the only registration campaign: nothing is offered, and nothing is substituted.
+    await session.delete(await session.get(Sale, "reg-uni"))
+    await session.flush()
+    agent = FakeAgent()
+    response, verified = await service.recommend(await pre(session, bare), agent)
+    assert agent.calls == []
+    assert response.best_now is None and response.wait_suggestion is None
+    assert "需登錄" in response.explanation
+    assert verified.sale_ids == [] and verified.benefit_ids == []
+
+
+async def _card(session, name):
+    return (await session.scalars(select(Card).where(Card.name == name))).one()
+
+
+async def test_verified_base_benefit_pick_stamps_the_benefit_not_a_sale(session, bare):
+    p = await pre(session, bare)
+    raw = pick_base("Unicard")({"now_candidates": p.now_candidates})
+    verified = service.verified_targets(p, raw)
+    assert len(verified.benefit_ids) == 1 and verified.sale_ids == []
+
+    await service.mark_verified(session, verified.sale_ids, verified.benefit_ids)
+    stamped = (
+        await session.scalars(
+            select(CardBenefit).where(CardBenefit.official_verified_at.is_not(None))
+        )
+    ).all()
+    assert [str(b.id) for b in stamped] == verified.benefit_ids
+    assert (
+        await session.scalars(select(Sale).where(Sale.official_verified_at.is_not(None)))
+    ).all() == []
+
+    # Unopened URL: no stamp for a base benefit either.
+    raw["opened_urls"] = []
+    assert service.verified_targets(p, raw).benefit_ids == []
+
+
+@pytest_asyncio.fixture
+async def bare_api(session, bare, monkeypatch):
+    app = create_app()
+    agent = FakeAgent()
+
+    async def _session():
+        yield session
+
+    async def _user():
+        return bare
+
+    def _boom(*a, **k):
+        raise AssertionError("recommendation must not touch Google Calendar")
+
+    monkeypatch.setattr(calendar_route.google_calendar, "create_event", _boom)
+    app.dependency_overrides[get_session] = _session
+    app.dependency_overrides[get_current_user] = _user
+    app.dependency_overrides[get_recommendation_agent] = lambda: agent
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        c.agent = agent
+        yield c
+
+
+async def test_stream_recommends_a_base_benefit_without_calendar_or_user_sales(bare_api, session):
+    bare_api.agent.answer = pick_base("Unicard")
+    events = parse_sse((await bare_api.post(f"{P}/recommendations/stream", json=REQ)).text)
+
+    assert [n for n, _ in events] == ["searching", "searching", "recommendation", "done"]
+    best = events[2][1]["best_now"]
+    assert best["candidate_type"] == "base_benefit" and best["sale_id"] is None
+    assert best["verification_status"] == "verified"
+    assert await session.scalar(select(func.count()).select_from(CalendarEvent)) == 0
+    assert await session.scalar(select(func.count()).select_from(UserSale)) == 0
