@@ -96,6 +96,8 @@ class UserAnalysis(Base):
     created_at: Mapped[datetime] = _ts()
     updated_at: Mapped[datetime] = _ts_updated()
 
+    user_card: Mapped["UserCard"] = relationship()
+
 
 class Sale(Base):
     __tablename__ = "sales"

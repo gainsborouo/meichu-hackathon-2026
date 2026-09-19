@@ -28,6 +28,11 @@ class Settings(BaseSettings):
 
     # Google OAuth client used only for Calendar access. Firebase sign-in does
     # not grant the calendar.events scope, so that consent is separate.
+    # Shared by the statement agent and the spend-report writer.
+    llm_base_url: str | None = None
+    llm_api_key: str | None = None
+    llm_model: str | None = None
+
     google_client_id: str | None = None
     google_client_secret: str | None = None
     google_oauth_redirect_uri: str = "postmessage"

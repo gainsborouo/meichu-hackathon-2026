@@ -19,7 +19,7 @@ from app.api.deps import CurrentUser, SessionDep
 from app.core.config import get_settings
 from app.repositories import analyses as analyses_repo
 from app.repositories import cards as cards_repo
-from app.schemas.db import AnalysisRead
+from app.schemas.db import AnalysisRead, SpendReportRead
 from app.schemas.statements import StatementAnalysisResponse
 from app.services.spend_report import refresh_latest_spend_report
 from app.services.statement_agent import (
@@ -306,3 +306,27 @@ async def analyze_and_store(
         )
     await refresh_latest_spend_report(session, user.id)
     return [AnalysisRead.model_validate(r) for r in rows]
+
+
+@router.get(
+    "/me/statements",
+    response_model=SpendReportRead,
+    summary="Read the cached three-month spending summary",
+)
+async def read_spend_report(user: CurrentUser, session: SessionDep) -> SpendReportRead:
+    """Return the merged summary cached on the user record.
+
+    This is a plain read: the report is rebuilt whenever an analysis is written,
+    so there is nothing to recompute here, and regenerating on GET would put an
+    LLM call behind a request that callers reasonably expect to be cheap and
+    repeatable. Re-upload a statement, or write an analysis, to refresh it.
+
+    The counts come from the same window the report was built from, so a client
+    can say "based on 3 months across 2 cards" without parsing the Markdown.
+    """
+    rows = await analyses_repo.latest_months_for_user(session, user.id, months=3)
+    return SpendReportRead(
+        report=user.latest_spend_report,
+        months_covered=len({row.analysis_month for row in rows}),
+        cards_covered=len({row.user_card_id for row in rows}),
+    )

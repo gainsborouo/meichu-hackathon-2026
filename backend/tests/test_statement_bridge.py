@@ -196,3 +196,57 @@ async def test_falls_back_to_the_daily_series_for_the_month(client, session) -> 
                                files={"files": ("x.jpg", JPEG, "image/jpeg")})).json()
     assert row["analysis_month"] == "2026-05-01"
     assert row["report"] == "五月摘要。"  # no insights -> newest month gets the narrative
+
+
+# --- reading the cached report ------------------------------------------
+
+
+async def test_report_is_null_before_any_analysis(client, session) -> None:
+    await _my_card(session)
+    body = (await client.get(f"{P}/me/statements")).json()
+    assert body == {"report": None, "months_covered": 0, "cards_covered": 0}
+
+
+async def test_report_appears_after_an_upload(client, session) -> None:
+    await _my_card(session)
+    await client.post(f"{P}/me/statements", files={"files": ("aug.jpg", JPEG, "image/jpeg")})
+    body = (await client.get(f"{P}/me/statements")).json()
+    assert "## 近三個月消費總結" in body["report"]
+    assert body["months_covered"] == 1 and body["cards_covered"] == 1
+
+
+async def test_counts_track_months_and_cards(client, session) -> None:
+    await _my_card(session, "玉山銀行", "Pi 信用卡")
+    await _my_card(session, "中國信託", "LINE Pay 聯名卡")
+    client.state["summaries"] = [
+        _summary("2026-06", 5420, issuer="玉山銀行"),
+        _summary("2026-07", 3360, issuer="玉山銀行"),
+        _summary("2026-08", 1200, issuer="中國信託"),
+    ]
+    await client.post(f"{P}/me/statements", files=[
+        ("files", (f"{i}.jpg", JPEG, "image/jpeg")) for i in range(3)
+    ])
+    body = (await client.get(f"{P}/me/statements")).json()
+    assert body["months_covered"] == 3 and body["cards_covered"] == 2
+
+
+async def test_reading_the_report_does_not_call_the_model(client, session, monkeypatch) -> None:
+    """GET must stay cheap and repeatable -- no LLM call behind a plain read."""
+    from app.services import spend_report
+
+    await _my_card(session)
+    await client.post(f"{P}/me/statements", files={"files": ("aug.jpg", JPEG, "image/jpeg")})
+
+    async def _explode(*args, **kwargs):
+        raise AssertionError("GET /me/statements must not regenerate the report")
+
+    monkeypatch.setattr(spend_report, "write_report", _explode)
+    assert (await client.get(f"{P}/me/statements")).status_code == 200
+
+
+async def test_matches_what_me_returns(client, session) -> None:
+    await _my_card(session)
+    await client.post(f"{P}/me/statements", files={"files": ("aug.jpg", JPEG, "image/jpeg")})
+    assert (await client.get(f"{P}/me/statements")).json()["report"] == (
+        await client.get(f"{P}/me")
+    ).json()["latest_spend_report"]

@@ -1,0 +1,45 @@
+{
+  "skill_name": "spend-report-summary",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "這是一位使用者最近三個月、兩張卡的消費分析（evals/fixture_rows.json）。幫我整理成一份要存進 latest_spend_report 的總結。",
+      "expected_output": "A zh-TW report: months summing correctly across both cards (5420 / 3360 / 6928, total 15708), a markdown table, the Anthropic subscription surfaced, and insight about what drove the August increase and the transport drop.",
+      "files": ["evals/fixture_rows.json"],
+      "assertions": [
+        "Every month total is correct, including August summing both cards to 6928",
+        "The three-month total of 15708 appears",
+        "Output is a markdown table plus prose, in Traditional Chinese",
+        "The ANTHROPIC* CLAUDE SUB subscription charging all three months is surfaced",
+        "The collapse of transport spend after June is mentioned",
+        "The bundled aggregate_analyses.py script was run rather than the arithmetic being done by hand",
+        "No monetary figure appears that is absent from the aggregated facts",
+        "Raw per-card report text is not simply concatenated into the output"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "I have a user's last three months of per-card statement analyses in evals/fixture_rows.json. Produce the merged spending summary that gets cached on the user record.",
+      "expected_output": "Same merged summary, reached from an English request; the report itself should still be in Traditional Chinese because the underlying analyses are.",
+      "files": ["evals/fixture_rows.json"],
+      "assertions": [
+        "The report is written in Traditional Chinese despite the English request",
+        "Month totals are correct (5420 / 3360 / 6928)",
+        "A month-by-month table is present",
+        "The summary interprets the data rather than only restating the table"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "這個使用者只有八月一個月的分析資料（evals/fixture_rows_single_month.json），幫我產生消費總結。",
+      "expected_output": "A report covering August only, explicitly noting there is not enough history for a trend, without inventing month-over-month movement.",
+      "files": ["evals/fixture_rows_single_month.json"],
+      "assertions": [
+        "Reports August's total of 6928 correctly",
+        "States that there is not enough history for a trend",
+        "Does not invent month-over-month change or claim a trend",
+        "Does not fabricate data for June or July"
+      ]
+    }
+  ]
+}

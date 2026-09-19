@@ -50,7 +50,7 @@ async def test_card_analysis_and_sales_flow(client, session) -> None:
         json={"analysis_month": "2026-09-20", "report": "hello", "analysis_data": {"a": 1}},
     )
     assert r.status_code == 200 and r.json()["analysis_month"] == "2026-09-01"
-    assert (await client.get(f"{p}/me")).json()["latest_spend_report"].endswith("hello")
+    assert "2026-09" in (await client.get(f"{p}/me")).json()["latest_spend_report"]
 
     sale = (await client.get(f"{p}/sales", params={"card_id": card["id"]})).json()[0]
     assert (await client.get(f"{p}/me/sales")).json() == []

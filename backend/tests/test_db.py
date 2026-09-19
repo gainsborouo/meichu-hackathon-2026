@@ -102,7 +102,9 @@ async def test_spend_report_uses_latest_three_months_and_keeps_history(session) 
             analysis_data={"m": m},
         )
     report = await refresh_latest_spend_report(session, user.id)
-    assert "m8" in report and "m6" in report and "m5" not in report
+    # The report is now a merged summary, so assert on the months it covers
+    # rather than on the raw per-card text it used to concatenate.
+    assert "2026-08" in report and "2026-06" in report and "2026-05" not in report
     assert user.latest_spend_report == report
     assert len(await analyses_repo.list_for_user_card(session, uc.id, limit=10)) == 4
     assert len(await analyses_repo.list_for_user_card(session, uc.id)) == 3

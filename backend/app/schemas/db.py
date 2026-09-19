@@ -131,3 +131,17 @@ class CalendarEventCreated(BaseModel):
         description="True when this sale had already been notified; no duplicate was recorded."
     )
     user_sale: UserSaleRead | None
+
+
+class SpendReportRead(BaseModel):
+    """The cached three-month spending summary shown on the dashboard."""
+
+    report: str | None = Field(
+        description="Markdown summary, or null when the user has no analyses yet."
+    )
+    months_covered: int = Field(
+        description="How many distinct months the report was built from (at most 3)."
+    )
+    cards_covered: int = Field(
+        description="How many of the user's cards contributed an analysis in that window."
+    )

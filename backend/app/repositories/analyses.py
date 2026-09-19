@@ -3,6 +3,7 @@ from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.models import UserAnalysis, UserCard
 
@@ -73,7 +74,10 @@ async def latest_months_for_user(
     result = await session.scalars(
         select(UserAnalysis)
         .join(UserCard, UserCard.id == UserAnalysis.user_card_id)
+        # The summary names the card each analysis came from, so load it here
+        # rather than lazily per row inside an async context.
+        .options(joinedload(UserAnalysis.user_card).joinedload(UserCard.card))
         .where(UserCard.user_id == user_id, UserAnalysis.analysis_month.in_(recent))
         .order_by(UserAnalysis.analysis_month.desc(), UserCard.created_at)
     )
-    return list(result)
+    return list(result.unique())

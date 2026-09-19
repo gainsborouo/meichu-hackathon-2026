@@ -1,0 +1,280 @@
+{
+  "rows": [
+    {
+      "analysis_month": "2026-06-01",
+      "card": {
+        "bank_name": "玉山銀行",
+        "name": "Pi 信用卡"
+      },
+      "report": "六月以日本交通為主。",
+      "analysis_data": {
+        "summary": {
+          "currency": "TWD",
+          "period": {
+            "start": "2026-06-01"
+          },
+          "totals": {
+            "net_spend": 5420,
+            "txn_count": 10,
+            "fees": 77
+          },
+          "categories": [
+            {
+              "name": "transport",
+              "amount": 2965
+            },
+            {
+              "name": "entertainment",
+              "amount": 1740
+            },
+            {
+              "name": "software_services",
+              "amount": 638
+            },
+            {
+              "name": "financial_fees",
+              "amount": 77
+            }
+          ],
+          "merchants": [
+            {
+              "merchant": "SUICA MOBILE PAYMENT",
+              "amount": 2965,
+              "txn_count": 1
+            },
+            {
+              "merchant": "TOWER RECORD SHIBUYA",
+              "amount": 1740,
+              "txn_count": 1
+            },
+            {
+              "merchant": "ANTHROPIC* CLAUDE SUB",
+              "amount": 638,
+              "txn_count": 1
+            }
+          ],
+          "possible_subscriptions": [
+            {
+              "merchant": "ANTHROPIC* CLAUDE SUB",
+              "amount": 638
+            }
+          ],
+          "patterns": {
+            "largest_transaction": {
+              "merchant": "TOWER RECORD SHIBUYA",
+              "amount": 1740,
+              "date": "2026-06-19"
+            }
+          }
+        }
+      }
+    },
+    {
+      "analysis_month": "2026-07-01",
+      "card": {
+        "bank_name": "玉山銀行",
+        "name": "Pi 信用卡"
+      },
+      "report": "七月最安靜。",
+      "analysis_data": {
+        "summary": {
+          "currency": "TWD",
+          "period": {
+            "start": "2026-07-01"
+          },
+          "totals": {
+            "net_spend": 3360,
+            "txn_count": 10,
+            "fees": 26
+          },
+          "categories": [
+            {
+              "name": "uncategorized",
+              "amount": 927
+            },
+            {
+              "name": "software_services",
+              "amount": 648
+            },
+            {
+              "name": "insurance",
+              "amount": 502
+            },
+            {
+              "name": "transport",
+              "amount": 990
+            },
+            {
+              "name": "entertainment",
+              "amount": 267
+            },
+            {
+              "name": "financial_fees",
+              "amount": 26
+            }
+          ],
+          "merchants": [
+            {
+              "merchant": "SUICA MOBILE PAYMENT",
+              "amount": 990,
+              "txn_count": 1
+            },
+            {
+              "merchant": "ANTHROPIC* CLAUDE SUB",
+              "amount": 648,
+              "txn_count": 1
+            },
+            {
+              "merchant": "普洛ＰＵＲＯ",
+              "amount": 927,
+              "txn_count": 1
+            },
+            {
+              "merchant": "富邦產物保險",
+              "amount": 502,
+              "txn_count": 1
+            }
+          ],
+          "possible_subscriptions": [
+            {
+              "merchant": "ANTHROPIC* CLAUDE SUB",
+              "amount": 648
+            }
+          ],
+          "patterns": {
+            "largest_transaction": {
+              "merchant": "普洛ＰＵＲＯ",
+              "amount": 927,
+              "date": "2026-07-31"
+            }
+          }
+        }
+      }
+    },
+    {
+      "analysis_month": "2026-08-01",
+      "card": {
+        "bank_name": "玉山銀行",
+        "name": "Pi 信用卡"
+      },
+      "report": "八月由樂天市場主導。",
+      "analysis_data": {
+        "summary": {
+          "currency": "TWD",
+          "period": {
+            "start": "2026-08-01"
+          },
+          "totals": {
+            "net_spend": 5728,
+            "txn_count": 8,
+            "fees": 12
+          },
+          "categories": [
+            {
+              "name": "online_shopping",
+              "amount": 2900
+            },
+            {
+              "name": "entertainment",
+              "amount": 1994
+            },
+            {
+              "name": "software_services",
+              "amount": 638
+            },
+            {
+              "name": "utilities_telecom",
+              "amount": 184
+            },
+            {
+              "name": "financial_fees",
+              "amount": 12
+            }
+          ],
+          "merchants": [
+            {
+              "merchant": "樂天市場",
+              "amount": 2900,
+              "txn_count": 1
+            },
+            {
+              "merchant": "ＫＫＴＩＸ",
+              "amount": 1880,
+              "txn_count": 1
+            },
+            {
+              "merchant": "ANTHROPIC* CLAUDE SUB",
+              "amount": 638,
+              "txn_count": 1
+            },
+            {
+              "merchant": "POVO CHARGES",
+              "amount": 184,
+              "txn_count": 1
+            }
+          ],
+          "possible_subscriptions": [
+            {
+              "merchant": "ANTHROPIC* CLAUDE SUB",
+              "amount": 638
+            }
+          ],
+          "patterns": {
+            "largest_transaction": {
+              "merchant": "樂天市場",
+              "amount": 2900,
+              "date": "2026-08-09"
+            }
+          }
+        }
+      }
+    },
+    {
+      "analysis_month": "2026-08-01",
+      "card": {
+        "bank_name": "中國信託",
+        "name": "LINE Pay 聯名卡"
+      },
+      "report": "八月餐飲。",
+      "analysis_data": {
+        "summary": {
+          "currency": "TWD",
+          "period": {
+            "start": "2026-08-01"
+          },
+          "totals": {
+            "net_spend": 1200,
+            "txn_count": 6,
+            "fees": 0
+          },
+          "categories": [
+            {
+              "name": "dining",
+              "amount": 900
+            },
+            {
+              "name": "convenience",
+              "amount": 300
+            }
+          ],
+          "merchants": [
+            {
+              "merchant": "foodpanda",
+              "amount": 900,
+              "txn_count": 1
+            },
+            {
+              "merchant": "全家便利商店",
+              "amount": 300,
+              "txn_count": 1
+            }
+          ],
+          "possible_subscriptions": [],
+          "patterns": {
+            "largest_transaction": null
+          }
+        }
+      }
+    }
+  ]
+}
