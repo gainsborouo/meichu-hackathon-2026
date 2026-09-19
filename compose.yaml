@@ -9,10 +9,14 @@ services:
         required: false
     environment:
       DEBUG: "${DEBUG:-true}"
+      DATABASE_URL: "${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-app}}"
       # The statement agent needs a vision-capable OpenAI-compatible endpoint.
       LLM_BASE_URL: "${LLM_BASE_URL:-}"
       LLM_API_KEY: "${LLM_API_KEY:-}"
       LLM_MODEL: "${LLM_MODEL:-}"
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       # The runtime image is python:slim, so probe with stdlib rather than curl.
       test:
@@ -35,6 +39,21 @@ services:
         - action: rebuild
           path: ./backend/uv.lock
 
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-app}"
+      # Local-dev fallback only; set POSTGRES_PASSWORD in the environment for anything real.
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-postgres}"
+      POSTGRES_DB: "${POSTGRES_DB:-app}"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   caddy:
     build: ./frontend
     ports:
@@ -42,6 +61,9 @@ services:
     configs:
       - source: caddyfile
         target: /etc/caddy/Caddyfile
+
+volumes:
+  pgdata:
 
 configs:
   caddyfile:
