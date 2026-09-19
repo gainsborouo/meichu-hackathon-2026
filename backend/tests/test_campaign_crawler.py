@@ -98,7 +98,9 @@ def test_card_aliases_cover_name_variants():
 def test_queries_are_structured_official_site_year_and_nothing_else():
     queries = build_queries("玉山銀行", "Unicard", 2026)
     assert queries and all(q.startswith("site:") for q in queries)
-    assert all("2026" in q and "Unicard" in q for q in queries)
+    assert all("Unicard" in q for q in queries)
+    assert any("2026" in q for q in queries)
+    assert any("2026" not in q for q in queries)  # current product pages often omit a year
     assert {q.split()[0] for q in queries} <= {"site:esunbank.com", "site:esunbank.com.tw"}
     assert all("@" not in q and "$" not in q for q in queries)
     assert build_queries("不支援銀行", "X", 2026) == []
@@ -133,6 +135,19 @@ def test_only_official_urls_are_fetched_and_final_urls_are_kept():
     pages = gather_official_pages(BANK, CARD, year=2026, search=search, fetch=fetch)
     assert fetched == ["https://www.esunbank.com/old-promo", "https://www.esunbank.com/gone"]
     assert [p.url for p in pages] == [final]  # the redirect input is not an opened page
+
+
+def test_gather_continues_after_one_search_query_is_rate_limited():
+    calls = []
+
+    def search(query):
+        calls.append(query)
+        if len(calls) == 1:
+            raise RuntimeError("No results found")
+        return [PAGE_URL]
+
+    pages = gather_official_pages(BANK, CARD, year=2026, search=search, fetch=ok)
+    assert len(calls) > 1 and [page.url for page in pages] == [PAGE_URL]
 
 
 def test_gather_drops_pages_whose_final_url_left_the_bank():
@@ -389,7 +404,7 @@ async def test_crawl_card_reports_failures_instead_of_raising():
         raise RuntimeError("rate limited")
 
     searched = await crawl_card(TARGET, today=TODAY, search=boom, extract=lambda p: {})
-    assert "search or fetch failed" in searched.error
+    assert searched.error == "no official page could be opened"
 
     async def bad_model(payload):
         raise ValueError("bad json")

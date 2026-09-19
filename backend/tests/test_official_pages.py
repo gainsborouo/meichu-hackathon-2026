@@ -1,5 +1,7 @@
 """Page-level verification: the backend must really open the page. No network here."""
 
+import ssl
+
 import pytest
 
 from app.services import official_pages
@@ -28,6 +30,13 @@ def getter(responses):
 
 def public(_host):
     return True
+
+
+def test_ssl_context_keeps_ca_and_hostname_verification_without_extension_strictness():
+    context = official_pages._ssl_context()
+    assert context.check_hostname is True and context.verify_mode == ssl.CERT_REQUIRED
+    strict = getattr(ssl, "VERIFY_X509_STRICT", 0)
+    assert not strict or not (context.verify_flags & strict)
 
 
 def test_readable_page_opens_and_strips_scripts():

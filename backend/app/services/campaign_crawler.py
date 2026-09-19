@@ -217,6 +217,10 @@ def build_queries(bank: str, card: str, year: int) -> list[str]:
     for domain in domains:
         queries.append(f"site:{domain} {name} 信用卡 {year} 權益 回饋")
         queries.append(f"site:{domain} {name} {year} 活動 登錄")
+        # Product/standing-benefit pages often omit a year. Validation still requires
+        # page evidence that any extracted reward is current, so this broadens discovery
+        # without letting stale data through.
+        queries.append(f"site:{domain} {name} 信用卡 權益 回饋")
     return queries
 
 
@@ -247,7 +251,12 @@ def gather_official_pages(
     for query in build_queries(bank, card, year):
         if cancelled is not None and cancelled():
             return []
-        for href in search(query):
+        try:
+            results = search(query)
+        except Exception as exc:  # one rate-limited/no-result provider must not lose the card
+            logger.info("search failed for %r: %s", query, exc)
+            continue
+        for href in results:
             if is_official_url(bank, href) and normalize_url(href) not in {
                 normalize_url(c) for c in candidates
             }:

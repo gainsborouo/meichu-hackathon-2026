@@ -11,12 +11,13 @@ from __future__ import annotations
 import ipaddress
 import re
 import socket
+import ssl
 from collections.abc import Callable
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
 
 from app.services.official_sources import is_official_for_any_bank
 
@@ -55,7 +56,21 @@ class _NoRedirect(HTTPRedirectHandler):
         return None
 
 
-_opener = build_opener(_NoRedirect)
+def _ssl_context() -> ssl.SSLContext:
+    """Normal CA/hostname verification, minus OpenSSL's extension-strict mode.
+
+    A few Taiwanese bank endpoints have legacy chains missing Subject Key Identifier.
+    They remain HTTPS-only and CA/hostname-verified; this only restores the compatibility
+    behaviour used by browsers and older Python releases.
+    """
+    context = ssl.create_default_context()
+    strict = getattr(ssl, "VERIFY_X509_STRICT", 0)
+    if strict:
+        context.verify_flags &= ~strict
+    return context
+
+
+_opener = build_opener(_NoRedirect, HTTPSHandler(context=_ssl_context()))
 
 
 def _get(url: str) -> tuple[int, dict[str, str], bytes]:
