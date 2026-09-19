@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     # Firebase project whose ID tokens the frontend sends (see frontend/src/firebase.ts).
     firebase_project_id: str = "meichu-2026"
 
+    # Google OAuth client used only for Calendar access. Firebase sign-in does
+    # not grant the calendar.events scope, so that consent is separate.
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    google_oauth_redirect_uri: str = "postmessage"
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -38,6 +38,9 @@ def test_migration_renders_postgres_sql() -> None:
         "EXTRACT(DAY FROM analysis_month) = 1",
         "analysis_month DESC",
         "ON DELETE RESTRICT",
+        "CREATE TABLE calendar_events",
+        "reward_rules",
+        "google_refresh_token",
         "ON DELETE SET NULL",
     ):
         assert needle in out

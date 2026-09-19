@@ -28,6 +28,9 @@ class User(Base):
     google_uid: Mapped[str] = mapped_column(sa.Text, unique=True)
     email: Mapped[str] = mapped_column(sa.Text, unique=True)
     calendar_push_enabled: Mapped[bool] = mapped_column(default=False, server_default=sa.false())
+    # Firebase sign-in does not grant the Calendar scope, so connecting a
+    # calendar is a separate OAuth consent whose refresh token is kept here.
+    google_refresh_token: Mapped[str | None] = mapped_column(sa.Text)
     latest_spend_report: Mapped[str | None] = mapped_column(sa.Text)
     created_at: Mapped[datetime] = _ts()
     updated_at: Mapped[datetime] = _ts_updated()
@@ -102,6 +105,11 @@ class Sale(Base):
     source_payload: Mapped[dict] = mapped_column(
         JSONType, default=dict, server_default=sa.text("'{}'")
     )
+    # Machine-rankable form of `reward`, derived by app.services.reward_rules.
+    # Empty when nothing quantifiable could be extracted; `reward` stays the truth.
+    reward_rules: Mapped[list] = mapped_column(
+        JSONType, default=list, server_default=sa.text("'[]'")
+    )
     fetched_at: Mapped[datetime] = _ts()
     created_at: Mapped[datetime] = _ts()
     updated_at: Mapped[datetime] = _ts_updated()
@@ -128,3 +136,34 @@ class UserSale(Base):
     )
 
     sale: Mapped[Sale] = relationship(lazy="joined")
+
+
+class CalendarEvent(Base):
+    """An event this app created in the user's calendar.
+
+    Kept locally so the app can list and cancel its own events; the calendar
+    provider remains the source of truth for the event itself. `sale_id` is set
+    when the reminder came from a campaign, and null for a plain "remind me to
+    buy this" -- which is why user_sales alone was not enough.
+    """
+
+    __tablename__ = "calendar_events"
+    __table_args__ = (UniqueConstraint("user_id", "provider", "provider_event_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    sale_id: Mapped[str | None] = mapped_column(ForeignKey("sales.id", ondelete="SET NULL"))
+    provider: Mapped[str] = mapped_column(sa.Text, default="google", server_default="google")
+    provider_event_id: Mapped[str] = mapped_column(sa.Text)
+    title: Mapped[str] = mapped_column(sa.Text)
+    starts_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True))
+    ends_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    all_day: Mapped[bool] = mapped_column(default=False, server_default=sa.false())
+    notes: Mapped[str | None] = mapped_column(sa.Text)
+    html_link: Mapped[str | None] = mapped_column(sa.Text)
+    created_at: Mapped[datetime] = _ts()
+    updated_at: Mapped[datetime] = _ts_updated()
+
+    sale: Mapped[Sale | None] = relationship(lazy="joined")
