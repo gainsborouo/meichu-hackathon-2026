@@ -1,0 +1,55 @@
+{
+  "skill_name": "credit-card-statement-analysis",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "[The user sends this statement image with no accompanying text.]",
+      "expected_output": "A full spending analysis without asking what to do: summary JSON reconciling to the printed NT$5,728, plus a short narrative leading with 樂天市場 / online shopping as the dominant spend.",
+      "files": ["evals/files/statement-2026-08.jpg"],
+      "assertions": [
+        "Produces an analysis without first asking the user what they want done with the image",
+        "Computed net spend equals the printed 本期新增款項 of 5728",
+        "All 8 charge rows are transcribed (184, 2, 114, 1, 1880, 2900, 638, 9)",
+        "The 上期應繳金額 3360 opening balance is not counted as spending",
+        "The 08/24 感謝您辦理本行自動轉帳繳款 payment of 3360 is excluded from spend",
+        "樂天市場 (2900) is identified as the largest single purchase",
+        "The analyze_transactions.py script was executed rather than totals summed by hand",
+        "No monetary figure appears in the narrative that is absent from the summary JSON"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "[The user sends this statement image with no accompanying text.]",
+      "expected_output": "Analysis of the June travel month: reconciles to NT$5,420, recognizes the SUICA top-ups as transport, and notices the concentration of foreign transactions and their service fees.",
+      "files": ["evals/files/statement-2026-06.jpg"],
+      "assertions": [
+        "Computed net spend equals the printed 本期新增款項 of 5420",
+        "The three SUICA MOBILE PAYMENT rows (989, 992, 984) are categorized as transport rather than left uncategorized",
+        "The five 國外交易服務費 rows are recorded as fees totalling 77",
+        "Foreign amounts (JPY 5000, JPY 8800, USD 20) are kept separate from the settled TWD amounts",
+        "The 上期應繳金額 4257 and the 06/22 payment of 4257 are both excluded from spend",
+        "The narrative identifies the month as dominated by spending in Japan",
+        "Mobile-payment usage is noticed as a pattern"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "[The user sends these three statement images together, with no accompanying text.]",
+      "expected_output": "Recognizes three separate months rather than pages of one statement, summarizes each, then compares: flags ANTHROPIC* CLAUDE SUB as a subscription charged every month, and the collapse of transport spend after June.",
+      "files": [
+        "evals/files/statement-2026-06.jpg",
+        "evals/files/statement-2026-07.jpg",
+        "evals/files/statement-2026-08.jpg"
+      ],
+      "assertions": [
+        "Treats the images as three separate monthly statements, not pages of one statement",
+        "Each month reconciles to its printed total (5420, 3360, 5728)",
+        "ANTHROPIC* CLAUDE SUB is identified as a recurring monthly subscription present in all three months",
+        "The trend across months is reported, not just three independent summaries",
+        "The drop in transport spend after June (2965 to 990 to 0) is surfaced",
+        "compare_statements.py was used rather than the trend being assembled by hand",
+        "The narrative offers a plausible data-supported explanation for the June/July pattern (a trip) without overclaiming"
+      ]
+    }
+  ]
+}

@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     debug: bool = False
     cors_origins: list[str] = ["http://localhost:5173"]
 
+    # Statement uploads are held in memory and a temp file only for the length
+    # of one request, so the ceiling exists to bound that, not storage.
+    max_upload_bytes: int = 10 * 1024 * 1024
+    max_statement_files: int = 12
+    statement_timeout_seconds: float = 300.0
+
 
 @lru_cache
 def get_settings() -> Settings:

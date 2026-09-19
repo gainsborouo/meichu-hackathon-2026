@@ -10,3 +10,11 @@ tests/
 Dockerfile
 .dockerignore
 README.md
+
+# Only SKILL.md, scripts/ and references/ are needed at runtime. Everything
+# else under skills/ is test material -- and the eval fixtures and workspace
+# both contain real statement images and transcriptions of them, which must
+# not end up baked into a distributable image.
+skills/*/evals/
+skills/*-workspace/
+skills/**/__pycache__/

@@ -1,0 +1,24 @@
+{
+  "currency": "TWD",
+  "statement": {
+    "issuer": "國泰世華",
+    "card_last4": "4312",
+    "period_start": "2026-08-01",
+    "period_end": "2026-08-31",
+    "printed_new_charges": 5644
+  },
+  "transactions": [
+    {"date": "2026-08-03", "description": "全家便利商店 忠孝店", "merchant": "全家便利商店", "amount": 89, "category": "convenience", "type": "purchase"},
+    {"date": "2026-08-05", "description": "FOODPANDA TAIPEI", "merchant": "foodpanda", "amount": 320, "category": "dining", "type": "purchase"},
+    {"date": "2026-08-05", "description": "NETFLIX.COM", "merchant": "Netflix", "amount": 390, "category": "entertainment", "type": "purchase"},
+    {"date": "2026-08-08", "description": "全聯福利中心 大安店", "merchant": "全聯福利中心", "amount": 1250, "category": "groceries", "type": "purchase"},
+    {"date": "2026-08-09", "description": "全家便利商店 大安店", "merchant": "全家便利商店", "amount": 65, "category": "convenience", "type": "purchase"},
+    {"date": "2026-08-12", "description": "蝦皮購物 退款", "merchant": "蝦皮購物", "amount": 200, "category": "online_shopping", "type": "refund"},
+    {"date": "2026-08-15", "description": "台灣中油 建國站", "merchant": "台灣中油", "amount": 1000, "category": "fuel", "type": "purchase"},
+    {"date": "2026-08-16", "description": "全家便利商店 信義店", "merchant": "全家便利商店", "amount": 120, "category": "convenience", "type": "purchase"},
+    {"date": "2026-08-18", "description": "STEAM PURCHASE", "merchant": "Steam", "amount": 960, "category": "entertainment", "type": "purchase", "foreign": {"amount": 29.99, "currency": "USD"}},
+    {"date": "2026-08-20", "description": "UBER EATS", "merchant": "Uber Eats", "amount": 450, "category": "dining", "type": "purchase"},
+    {"date": "2026-08-22", "description": "感謝您的繳款", "merchant": "繳款", "amount": 5000, "category": "payment", "type": "payment"},
+    {"date": "2026-08-25", "description": "信用卡年費", "merchant": "年費", "amount": 1200, "category": "financial_fees", "type": "fee"}
+  ]
+}

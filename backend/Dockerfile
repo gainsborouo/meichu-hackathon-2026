@@ -16,6 +16,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 COPY pyproject.toml uv.lock ./
 COPY app ./app
+# The statement agent loads SKILL.md, its scripts and references at runtime,
+# so the skill ships with the image. .dockerignore keeps the eval fixtures out:
+# those include real statement images and have no business in a built artifact.
+COPY skills ./skills
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev
