@@ -8,6 +8,7 @@ export default defineConfig({
   reporter: 'list',
   use: {
     baseURL: 'http://127.0.0.1:4199',
+    locale: 'zh-TW',
     trace: 'on-first-retry',
   },
   projects: [

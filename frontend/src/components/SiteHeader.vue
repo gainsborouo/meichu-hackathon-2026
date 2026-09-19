@@ -1,10 +1,20 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { CircleUserRound, CreditCard, FileUp, LogOut, WalletCards } from '@lucide/vue'
+import {
+  ChevronDown,
+  CircleUserRound,
+  CreditCard,
+  FileUp,
+  Languages,
+  LogOut,
+  WalletCards,
+} from '@lucide/vue'
 import { signInWithPopup, signOut } from 'firebase/auth'
 import { storeToRefs } from 'pinia'
+import { useI18n } from 'vue-i18n'
 
 import { auth, googleProvider } from '@/firebase'
+import { isLocale, setLocale } from '@/i18n'
 import { useAuthStore } from '@/stores/authStore'
 
 defineProps<{
@@ -13,13 +23,15 @@ defineProps<{
 
 const authStore = useAuthStore()
 const { user: authUser, ready: authReady } = storeToRefs(authStore)
+const { locale, t } = useI18n()
 const authBusy = ref(false)
-const authError = ref('')
+const authErrorKey = ref('')
 const avatarFailed = ref(false)
 
 const authUserName = computed(
-  () => authUser.value?.displayName || authUser.value?.email || 'Google 使用者',
+  () => authUser.value?.displayName || authUser.value?.email || t('auth.googleUser'),
 )
+const authError = computed(() => (authErrorKey.value ? t(authErrorKey.value) : ''))
 const showAvatar = computed(() => Boolean(authUser.value?.photoURL) && !avatarFailed.value)
 
 watch(authUser, () => {
@@ -34,7 +46,7 @@ async function handleLogin() {
   if (!authReady.value || authBusy.value) return
 
   authBusy.value = true
-  authError.value = ''
+  authErrorKey.value = ''
 
   try {
     await signInWithPopup(auth, googleProvider)
@@ -43,10 +55,7 @@ async function handleLogin() {
 
     if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') return
 
-    authError.value =
-      code === 'auth/popup-blocked'
-        ? '瀏覽器阻擋登入視窗，請允許彈出式視窗後再試。'
-        : '登入失敗，請稍後再試。'
+    authErrorKey.value = code === 'auth/popup-blocked' ? 'auth.popupBlocked' : 'auth.loginFailed'
   } finally {
     authBusy.value = false
   }
@@ -56,15 +65,20 @@ async function handleLogout() {
   if (authBusy.value) return
 
   authBusy.value = true
-  authError.value = ''
+  authErrorKey.value = ''
 
   try {
     await signOut(auth)
   } catch {
-    authError.value = '登出失敗，請稍後再試。'
+    authErrorKey.value = 'auth.logoutFailed'
   } finally {
     authBusy.value = false
   }
+}
+
+function handleLocaleChange(event: Event) {
+  const nextLocale = (event.target as HTMLSelectElement).value
+  if (isLocale(nextLocale)) setLocale(nextLocale)
 }
 </script>
 
@@ -74,24 +88,24 @@ async function handleLogout() {
       <a
         class="brand"
         href="/"
-        aria-label="信用卡推薦首頁"
+        :aria-label="t('navigation.homeLabel')"
         :aria-current="current === 'home' ? 'page' : undefined"
       >
         <span class="brand__mark" aria-hidden="true">
           <CreditCard :size="19" :stroke-width="1.8" />
         </span>
-        <span>信用卡推薦</span>
+        <span class="brand__label">{{ t('common.brand') }}</span>
       </a>
     </div>
 
-    <nav class="topbar__nav" aria-label="主要導覽">
+    <nav class="topbar__nav" :aria-label="t('navigation.mainLabel')">
       <a
         class="topbar__link"
         href="/upload-statement"
         :aria-current="current === 'upload-statement' ? 'page' : undefined"
       >
         <FileUp :size="18" aria-hidden="true" />
-        上傳帳單
+        {{ t('navigation.uploadStatement') }}
       </a>
       <a
         class="topbar__link"
@@ -99,7 +113,7 @@ async function handleLogout() {
         :aria-current="current === 'card-management' ? 'page' : undefined"
       >
         <WalletCards :size="18" aria-hidden="true" />
-        卡片管理
+        {{ t('navigation.cardManagement') }}
       </a>
     </nav>
 
@@ -130,13 +144,13 @@ async function handleLogout() {
             @click="handleLogout"
           >
             <LogOut :size="18" aria-hidden="true" />
-            {{ authBusy ? '登出中…' : '登出' }}
+            {{ authBusy ? t('auth.loggingOut') : t('auth.logout') }}
           </button>
           <button
             v-else
             class="topbar__login topbar__login--google"
             type="button"
-            aria-label="使用 Google 帳號登入"
+            :aria-label="t('auth.googleLoginLabel')"
             :disabled="!authReady || authBusy"
             :aria-busy="authBusy"
             @click="handleLogin"
@@ -164,17 +178,36 @@ async function handleLogout() {
                 d="M9 3.579c1.321 0 2.507.454 3.441 1.346l2.581-2.581C13.464.892 11.426 0 9 0A9 9 0 0 0 .956 4.961l3.007 2.332C4.672 5.164 6.656 3.579 9 3.579Z"
               />
             </svg>
-            {{ !authReady ? '確認登入狀態…' : authBusy ? '登入中…' : '登入' }}
+            {{ !authReady ? t('auth.checking') : authBusy ? t('auth.loggingIn') : t('auth.login') }}
           </button>
         </div>
 
         <p v-if="authError" class="topbar__auth-error" role="alert">{{ authError }}</p>
       </div>
+
+      <label class="topbar__language">
+        <span class="topbar__language-label">{{ t('language.label') }}</span>
+        <Languages class="topbar__language-icon" :size="17" aria-hidden="true" />
+        <select
+          class="topbar__language-select"
+          :value="locale"
+          :aria-label="t('language.label')"
+          @change="handleLocaleChange"
+        >
+          <option value="zh-TW">{{ t('language.zhTW') }}</option>
+          <option value="en-US">{{ t('language.enUS') }}</option>
+        </select>
+        <ChevronDown class="topbar__language-chevron" :size="16" aria-hidden="true" />
+      </label>
     </div>
   </header>
 </template>
 
 <style scoped>
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4
+ * component: language select · genre: modern-minimal · theme: Cobalt
+ * states: default · hover · focus · active · disabled
+ */
 .topbar {
   display: grid;
   width: min(100% - (var(--space-lg) * 2), var(--layout-max));
@@ -218,6 +251,7 @@ async function handleLogout() {
 .topbar__right,
 .topbar__nav,
 .topbar__link,
+.topbar__language,
 .topbar__auth-actions,
 .topbar__identity,
 .topbar__login {
@@ -230,6 +264,63 @@ async function handleLogout() {
   align-items: flex-start;
   gap: var(--space-sm);
   justify-self: end;
+}
+
+.topbar__language {
+  position: relative;
+  padding-block: var(--space-xs);
+  color: var(--color-muted);
+}
+
+.topbar__language-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.topbar__language-select {
+  width: 8.5rem;
+  min-height: var(--control-height);
+  appearance: none;
+  border: var(--rule-hairline) solid var(--color-rule-strong);
+  border-radius: var(--radius-control);
+  outline: var(--rule-focus) solid transparent;
+  outline-offset: var(--rule-hairline);
+  padding-inline: calc(var(--space-lg) + var(--space-xs)) calc(var(--space-lg) + var(--space-sm));
+  background: var(--color-paper);
+  color: var(--color-ink-2);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: var(--shadow-panel);
+  transition: background-color var(--dur-micro) var(--ease-out);
+}
+
+.topbar__language-icon,
+.topbar__language-chevron {
+  position: absolute;
+  z-index: var(--z-base);
+  inset-block-start: 50%;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.topbar__language-icon {
+  inset-inline-start: var(--space-sm);
+}
+
+.topbar__language-chevron {
+  inset-inline-end: var(--space-sm);
+}
+
+.topbar__language-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .topbar__left {
@@ -345,6 +436,7 @@ async function handleLogout() {
 
 .brand:focus-visible,
 .topbar__link:focus-visible,
+.topbar__language-select:focus-visible,
 .topbar__login:focus-visible {
   outline: var(--rule-focus) solid var(--color-focus);
   outline-offset: var(--rule-focus);
@@ -360,6 +452,14 @@ async function handleLogout() {
   .topbar__link:hover {
     color: var(--color-accent);
   }
+
+  .topbar__language-select:hover {
+    background: var(--color-paper-2);
+  }
+}
+
+.topbar__language-select:active {
+  background: var(--color-paper-3);
 }
 
 @media (min-width: 40rem) {
@@ -392,11 +492,25 @@ async function handleLogout() {
 
 @media (max-width: 40rem) {
   .topbar__right {
+    gap: var(--space-xs);
     justify-content: flex-end;
   }
 
   .topbar__identity {
     display: none;
+  }
+
+  .brand__label {
+    display: none;
+  }
+
+  .topbar__language-icon {
+    display: none;
+  }
+
+  .topbar__language-select {
+    width: 6.75rem;
+    padding-inline: var(--space-sm) var(--space-lg);
   }
 }
 </style>

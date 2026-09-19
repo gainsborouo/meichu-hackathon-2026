@@ -88,5 +88,7 @@ search.
 ## Output
 
 Reply with **one raw JSON object** matching `output-contract.md`: no code fences, no text
-around it. Keep `reason` fields to two or three plain sentences in Traditional Chinese,
-grounded in the candidate's own facts.
+around it. Write `reason` and `explanation` in the request's `locale`: Traditional Chinese
+for `zh-TW`, or concise American English for `en-US`. Keep each `reason` to two or three
+plain sentences grounded in the candidate's own facts. Do not translate card, bank,
+campaign, or official-source titles.

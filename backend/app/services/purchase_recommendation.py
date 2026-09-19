@@ -105,13 +105,24 @@ def _store_matches(store: str, platforms: list[str]) -> bool:
     )
 
 
-def _cap_description(rule: dict[str, Any]) -> str | None:
+def _cap_description(rule: dict[str, Any], locale: str) -> str | None:
     if rule.get("unlimited"):
-        return "無上限"
+        return "No reward cap" if locale == "en-US" else "無上限"
     if rule.get("cap_amount") is None:
         return None
-    period = "每月" if "每月" in (rule.get("source_text") or "") else ""
-    return f"{period}上限 {rule['cap_amount']:g} {rule.get('cap_unit') or '元'}"
+    monthly = "每月" in (rule.get("source_text") or "")
+    unit = rule.get("cap_unit") or "元"
+    if locale == "en-US":
+        translated_unit = {
+            "元": "TWD",
+            "點": "points",
+            "點數": "points",
+            "胖達幣": "Panda Coins",
+        }.get(unit, unit)
+        period = "Monthly " if monthly else ""
+        return f"{period}cap: {rule['cap_amount']:g} {translated_unit}"
+    period = "每月" if monthly else ""
+    return f"{period}上限 {rule['cap_amount']:g} {unit}"
 
 
 def _estimate(price: float, rule: dict[str, Any]) -> tuple[float, bool]:
@@ -204,7 +215,7 @@ def build_candidates(
                 "rate_max_display": _fmt_rate(rule["rate_max"])
                 if rule.get("rate_max") and rule["rate_max"] != rule["rate"]
                 else None,
-                "cap_description": _cap_description(rule),
+                "cap_description": _cap_description(rule, request.locale),
                 "cap_applied": cap_applied,
                 "min_spend": min_spend,
                 "estimated_reward_twd": reward,
@@ -308,21 +319,40 @@ def _reason(raw: dict) -> str:
 
 def _calendar_draft(pre: Preprocessed, cand: dict) -> CalendarDraft:
     start = date.fromisoformat(cand["campaign_start"])
-    notes = [
-        f"活動：{cand['title']}（{cand['card']['bank_name']} {cand['card']['name']}）",
-        f"開始日：{cand['campaign_start']}",
-        f"預估回饋：約 NT${cand['estimated_reward_twd']:g}（{cand['rate_display']}）",
-    ]
-    if cand["cap_description"]:
-        notes.append(f"回饋上限：{cand['cap_description']}")
-    if cand["conditions"]:
-        notes.append(f"條件：{cand['conditions']}")
-    if cand["requires_registration"]:
-        notes.append(
-            "需先登錄活動" + (f"：{cand['registration_url']}" if cand["registration_url"] else "")
-        )
+    if pre.request.locale == "en-US":
+        notes = [
+            f"Offer: {cand['title']} ({cand['card']['bank_name']} {cand['card']['name']})",
+            f"Starts: {cand['campaign_start']}",
+            f"Estimated reward: about NT${cand['estimated_reward_twd']:g} ({cand['rate_display']})",
+        ]
+        if cand["cap_description"]:
+            notes.append(f"Reward cap: {cand['cap_description']}")
+        if cand["conditions"]:
+            notes.append(f"Terms: {cand['conditions']}")
+        if cand["requires_registration"]:
+            notes.append(
+                "Registration required"
+                + (f": {cand['registration_url']}" if cand["registration_url"] else "")
+            )
+        title = f"Buy {pre.request.product_name} at {pre.request.store_name}"
+    else:
+        notes = [
+            f"活動：{cand['title']}（{cand['card']['bank_name']} {cand['card']['name']}）",
+            f"開始日：{cand['campaign_start']}",
+            f"預估回饋：約 NT${cand['estimated_reward_twd']:g}（{cand['rate_display']}）",
+        ]
+        if cand["cap_description"]:
+            notes.append(f"回饋上限：{cand['cap_description']}")
+        if cand["conditions"]:
+            notes.append(f"條件：{cand['conditions']}")
+        if cand["requires_registration"]:
+            notes.append(
+                "需先登錄活動"
+                + (f"：{cand['registration_url']}" if cand["registration_url"] else "")
+            )
+        title = f"{pre.request.store_name} 購買 {pre.request.product_name}"
     return CalendarDraft(
-        title=f"{pre.request.store_name} 購買 {pre.request.product_name}",
+        title=title,
         starts_at=datetime(start.year, start.month, start.day, 9, tzinfo=TAIPEI),
         notes="\n".join(notes),
     )
@@ -360,6 +390,13 @@ def _wait_suggestion(
 
 
 def empty_explanation(pre: Preprocessed) -> str:
+    if pre.request.locale == "en-US":
+        if not pre.held_cards:
+            return "No cards have been added, so a recommendation cannot be made."
+        kind = (
+            "require registration" if pre.mode == "registration" else "do not require registration"
+        )
+        return f"None of your cards has a valid offer for this purchase that {kind}."
     if not pre.held_cards:
         return "尚未加入任何持有的信用卡，無法推薦。"
     kind = "需登錄" if pre.mode == "registration" else "免登錄"

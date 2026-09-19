@@ -11,6 +11,7 @@ import {
   TriangleAlert,
   WalletCards,
 } from '@lucide/vue'
+import { useI18n } from 'vue-i18n'
 
 import SiteHeader from '../components/SiteHeader.vue'
 import { api } from '../services/api'
@@ -49,23 +50,35 @@ interface CardGroup {
   totalCount: number
 }
 
+interface CardMessage {
+  key: string
+  name: string
+}
+
+const { locale, t } = useI18n()
 const searchQuery = ref('')
 const catalogCards = ref<ApiCard[]>([])
 const ownedCards = ref<UserCard[]>([])
 const isLoading = ref(true)
-const loadError = ref('')
+const loadError = ref(false)
 const pendingAction = ref<CardAction | null>(null)
 const failedAction = ref<CardAction | null>(null)
-const actionError = ref('')
-const announcement = ref('')
+const actionError = ref<CardMessage | null>(null)
+const announcement = ref<CardMessage | null>(null)
 const failedImageIds = ref(new Set<string>())
 const expandedBankKeys = ref(new Set<string>())
 
 const ownedCardIds = computed(() => new Set(ownedCards.value.map(({ card }) => card.id)))
 const hasSearchQuery = computed(() => searchQuery.value.trim().length > 0)
+const actionErrorMessage = computed(() =>
+  actionError.value ? t(actionError.value.key, { name: actionError.value.name }) : '',
+)
+const announcementMessage = computed(() =>
+  announcement.value ? t(announcement.value.key, { name: announcement.value.name }) : '',
+)
 
 const filteredCards = computed(() => {
-  const query = searchQuery.value.trim().toLocaleLowerCase('zh-TW')
+  const query = searchQuery.value.trim().toLocaleLowerCase(locale.value)
 
   if (!query) return catalogCards.value
 
@@ -73,7 +86,7 @@ const filteredCards = computed(() => {
     [card.bank_name, card.name, card.issuer_en, card.variant, card.network, card.tier]
       .filter(Boolean)
       .join(' ')
-      .toLocaleLowerCase('zh-TW')
+      .toLocaleLowerCase(locale.value)
       .includes(query),
   )
 })
@@ -103,7 +116,7 @@ const groupedCards = computed<CardGroup[]>(() => {
 
     groups.set(key, {
       key,
-      bankName: card.bank_name ?? '發卡銀行未提供',
+      bankName: card.bank_name ?? t('common.bankUnknown'),
       cards: [card],
       totalCount: cardTotalsByBank.value.get(key) ?? 0,
     })
@@ -164,16 +177,16 @@ async function addCard(card: ApiCard) {
 
   pendingAction.value = { key: card.id, method: 'POST' }
   failedAction.value = null
-  actionError.value = ''
-  announcement.value = ''
+  actionError.value = null
+  announcement.value = null
 
   try {
     const response = await api.post<UserCard>('/me/cards', { card_id: card.id })
     ownedCards.value = [...ownedCards.value, response.data]
-    announcement.value = `已將「${card.name}」加入卡包。`
+    announcement.value = { key: 'cards.addedAnnouncement', name: card.name }
   } catch {
     failedAction.value = { key: card.id, method: 'POST' }
-    actionError.value = `無法加入「${card.name}」，持卡資料未變更。請稍後再試。`
+    actionError.value = { key: 'cards.addFailed', name: card.name }
   } finally {
     pendingAction.value = null
   }
@@ -184,16 +197,16 @@ async function removeCard(userCard: UserCard) {
 
   pendingAction.value = { key: userCard.id, method: 'DELETE' }
   failedAction.value = null
-  actionError.value = ''
-  announcement.value = ''
+  actionError.value = null
+  announcement.value = null
 
   try {
     await api.delete(`/me/cards/${userCard.id}`)
     ownedCards.value = ownedCards.value.filter(({ id }) => id !== userCard.id)
-    announcement.value = `已將「${userCard.card.name}」移出卡包。`
+    announcement.value = { key: 'cards.removedAnnouncement', name: userCard.card.name }
   } catch {
     failedAction.value = { key: userCard.id, method: 'DELETE' }
-    actionError.value = `無法移除「${userCard.card.name}」，持卡資料未變更。請稍後再試。`
+    actionError.value = { key: 'cards.removeFailed', name: userCard.card.name }
   } finally {
     pendingAction.value = null
   }
@@ -210,7 +223,7 @@ onMounted(async () => {
     ownedCards.value = ownedResponse.data
     expandAllVisibleBanks()
   } catch {
-    loadError.value = '無法讀取卡片資料，請稍後再試。'
+    loadError.value = true
   } finally {
     isLoading.value = false
   }
@@ -224,39 +237,41 @@ onMounted(async () => {
     <main class="card-workspace">
       <header class="page-intro">
         <div>
-          <h1>卡片管理</h1>
-          <p>加入你持有的信用卡，查詢推薦時會納入這些卡片。</p>
+          <h1>{{ t('cards.title') }}</h1>
+          <p>{{ t('cards.description') }}</p>
         </div>
       </header>
 
-      <p class="visually-hidden" role="status" aria-live="polite">{{ announcement }}</p>
+      <p class="visually-hidden" role="status" aria-live="polite">
+        {{ announcementMessage }}
+      </p>
 
       <p v-if="loadError || actionError" class="action-error" role="alert">
         <TriangleAlert :size="20" aria-hidden="true" />
-        <span>{{ loadError || actionError }}</span>
+        <span>{{ loadError ? t('cards.loadFailed') : actionErrorMessage }}</span>
       </p>
 
       <section class="wallet-section" aria-labelledby="wallet-title">
         <header class="section-heading">
           <div>
-            <h2 id="wallet-title">我的卡包</h2>
-            <p>已加入的信用卡會顯示在這裡。</p>
+            <h2 id="wallet-title">{{ t('cards.walletTitle') }}</h2>
+            <p>{{ t('cards.walletDescription') }}</p>
           </div>
           <span class="section-heading__count">{{
-            isLoading ? '—' : `${ownedCards.length} 張`
+            isLoading ? '—' : t('cards.count', ownedCards.length)
           }}</span>
         </header>
 
         <div v-if="isLoading" class="wallet-loading" role="status">
           <LoaderCircle class="button-spinner" :size="24" aria-hidden="true" />
-          <span>正在讀取持卡資料…</span>
+          <span>{{ t('cards.walletLoading') }}</span>
         </div>
 
         <div v-else-if="!loadError && ownedCards.length === 0" class="wallet-empty">
           <WalletCards :size="32" :stroke-width="1.6" aria-hidden="true" />
           <div>
-            <h3>尚未加入信用卡</h3>
-            <p>從下方卡片清單選擇你持有的信用卡。</p>
+            <h3>{{ t('cards.walletEmptyTitle') }}</h3>
+            <p>{{ t('cards.walletEmptyDescription') }}</p>
           </div>
         </div>
 
@@ -267,21 +282,26 @@ onMounted(async () => {
                 <img
                   v-if="userCard.card.artwork_id && !failedImageIds.has(userCard.card.artwork_id)"
                   :src="`/card-art/${userCard.card.artwork_id}.webp`"
-                  :alt="`${userCard.card.bank_name ?? ''}${userCard.card.name}卡面`"
+                  :alt="
+                    t('common.cardArtworkAlt', {
+                      bank: userCard.card.bank_name ?? '',
+                      name: userCard.card.name,
+                    })
+                  "
                   width="640"
                   height="400"
                   @error="markImageFailed(userCard.card.artwork_id)"
                 />
                 <div v-else class="card-art-fallback">
                   <CreditCard :size="36" :stroke-width="1.5" aria-hidden="true" />
-                  <span>卡面圖片無法顯示</span>
+                  <span>{{ t('common.cardArtworkUnavailable') }}</span>
                 </div>
               </div>
 
               <div class="wallet-card__meta">
                 <div>
                   <h3>{{ userCard.card.name }}</h3>
-                  <p>{{ userCard.card.bank_name ?? '發卡銀行未提供' }}</p>
+                  <p>{{ userCard.card.bank_name ?? t('common.bankUnknown') }}</p>
                 </div>
                 <button
                   class="wallet-remove"
@@ -289,7 +309,12 @@ onMounted(async () => {
                   :data-state="removeButtonState(userCard)"
                   :disabled="Boolean(pendingAction)"
                   :aria-busy="isPending(userCard.id, 'DELETE')"
-                  :aria-label="`移除${userCard.card.bank_name ?? ''}${userCard.card.name}`"
+                  :aria-label="
+                    t('cards.removeLabel', {
+                      bank: userCard.card.bank_name ?? '',
+                      name: userCard.card.name,
+                    })
+                  "
                   @click="removeCard(userCard)"
                 >
                   <LoaderCircle
@@ -299,7 +324,7 @@ onMounted(async () => {
                     aria-hidden="true"
                   />
                   <Trash2 v-else :size="17" aria-hidden="true" />
-                  {{ isPending(userCard.id, 'DELETE') ? '移除中…' : '移除' }}
+                  {{ isPending(userCard.id, 'DELETE') ? t('cards.removing') : t('cards.remove') }}
                 </button>
               </div>
             </article>
@@ -310,25 +335,25 @@ onMounted(async () => {
       <section class="catalogue-section" aria-labelledby="catalogue-title">
         <header class="section-heading section-heading--catalogue">
           <div>
-            <h2 id="catalogue-title">信用卡清單</h2>
-            <p>同一卡別的不同卡面只列出一次。</p>
+            <h2 id="catalogue-title">{{ t('cards.catalogueTitle') }}</h2>
+            <p>{{ t('cards.catalogueDescription') }}</p>
           </div>
         </header>
 
         <div class="search-control">
-          <label for="card-search">搜尋信用卡</label>
+          <label for="card-search">{{ t('cards.searchLabel') }}</label>
           <div class="search-control__field">
             <Search :size="19" aria-hidden="true" />
             <input
               id="card-search"
               v-model="searchQuery"
               type="search"
-              placeholder="例如：玉山銀行、LINE Pay"
+              :placeholder="t('cards.searchPlaceholder')"
               aria-describedby="card-search-help"
               autocomplete="off"
             />
           </div>
-          <p id="card-search-help">可輸入銀行、卡片名稱、卡別或發卡組織。</p>
+          <p id="card-search-help">{{ t('cards.searchHelp') }}</p>
         </div>
 
         <div
@@ -337,19 +362,19 @@ onMounted(async () => {
           role="status"
           aria-live="polite"
         >
-          <span>找到 {{ filteredCards.length }} 張信用卡</span>
+          <span>{{ t('cards.found', filteredCards.length) }}</span>
         </div>
 
         <div v-if="isLoading" class="catalogue-loading" role="status">
           <LoaderCircle class="button-spinner" :size="24" aria-hidden="true" />
-          <span>正在讀取信用卡清單…</span>
+          <span>{{ t('cards.catalogueLoading') }}</span>
         </div>
 
         <div v-else-if="!loadError && groupedCards.length === 0" class="catalogue-empty">
           <Search :size="28" :stroke-width="1.6" aria-hidden="true" />
           <div>
-            <h3>找不到符合條件的信用卡</h3>
-            <p>請改用銀行名稱或卡片名稱搜尋。</p>
+            <h3>{{ t('cards.noResultsTitle') }}</h3>
+            <p>{{ t('cards.noResultsDescription') }}</p>
           </div>
         </div>
 
@@ -369,8 +394,11 @@ onMounted(async () => {
               <span class="catalogue-bank__count">
                 {{
                   hasSearchQuery
-                    ? `符合 ${group.cards.length}／全部 ${group.totalCount} 張`
-                    : `${group.totalCount} 張`
+                    ? t('cards.groupMatches', {
+                        matched: group.cards.length,
+                        total: group.totalCount,
+                      })
+                    : t('cards.groupCount', group.totalCount)
                 }}
               </span>
             </summary>
@@ -381,7 +409,12 @@ onMounted(async () => {
                   <img
                     v-if="card.artwork_id && !failedImageIds.has(card.artwork_id)"
                     :src="`/card-art/${card.artwork_id}.webp`"
-                    :alt="`${card.bank_name ?? ''}${card.name}卡面`"
+                    :alt="
+                      t('common.cardArtworkAlt', {
+                        bank: card.bank_name ?? '',
+                        name: card.name,
+                      })
+                    "
                     width="640"
                     height="400"
                     loading="lazy"
@@ -389,14 +422,14 @@ onMounted(async () => {
                   />
                   <div v-else class="card-art-fallback">
                     <CreditCard :size="36" :stroke-width="1.5" aria-hidden="true" />
-                    <span>卡面圖片無法顯示</span>
+                    <span>{{ t('common.cardArtworkUnavailable') }}</span>
                   </div>
                 </div>
 
                 <div class="catalogue-card__meta">
                   <div>
                     <h3>{{ card.name }}</h3>
-                    <p>{{ card.bank_name ?? '發卡銀行未提供' }}</p>
+                    <p>{{ card.bank_name ?? t('common.bankUnknown') }}</p>
                   </div>
                 </div>
 
@@ -408,8 +441,8 @@ onMounted(async () => {
                   :aria-busy="isPending(card.id, 'POST')"
                   :aria-label="
                     isOwned(card)
-                      ? `已加入${card.bank_name ?? ''}${card.name}`
-                      : `加入${card.bank_name ?? ''}${card.name}`
+                      ? t('cards.addedLabel', { bank: card.bank_name ?? '', name: card.name })
+                      : t('cards.addLabel', { bank: card.bank_name ?? '', name: card.name })
                   "
                   @click="addCard(card)"
                 >
@@ -422,7 +455,11 @@ onMounted(async () => {
                   <CircleCheck v-else-if="isOwned(card)" :size="18" aria-hidden="true" />
                   <Plus v-else :size="18" aria-hidden="true" />
                   {{
-                    isPending(card.id, 'POST') ? '加入中…' : isOwned(card) ? '已加入' : '加入卡片'
+                    isPending(card.id, 'POST')
+                      ? t('cards.adding')
+                      : isOwned(card)
+                        ? t('cards.added')
+                        : t('cards.add')
                   }}
                 </button>
               </article>
@@ -434,7 +471,7 @@ onMounted(async () => {
 
     <footer class="card-footer">
       <div class="card-footer__meta">
-        <span>信用卡推薦</span>
+        <span>{{ t('common.brand') }}</span>
         <span>© 2026 Meichu Hackathon @ Google</span>
       </div>
     </footer>

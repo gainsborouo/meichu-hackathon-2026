@@ -1,17 +1,19 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { Banknote, CircleX, Search, Store, Tag } from '@lucide/vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 import SiteHeader from '../components/SiteHeader.vue'
 
 const router = useRouter()
+const { t } = useI18n()
 const location = ref('')
 const amount = ref('')
 const category = ref('')
-const locationError = ref('')
-const amountError = ref('')
-const categoryError = ref('')
+const locationError = ref(false)
+const amountError = ref(false)
+const categoryError = ref(false)
 
 const formattedAmount = computed(() => amount.value.replace(/\B(?=(\d{3})+(?!\d))/g, ','))
 
@@ -20,7 +22,7 @@ function isValidAmount(value: string) {
 }
 
 function handleLocationInput() {
-  if (location.value.trim()) locationError.value = ''
+  if (location.value.trim()) locationError.value = false
 }
 
 function handleAmountInput(event: Event) {
@@ -28,32 +30,32 @@ function handleAmountInput(event: Event) {
   amount.value = input.value.replace(/\D/g, '').replace(/^0+(?=\d)/, '')
   input.value = formattedAmount.value
 
-  if (isValidAmount(amount.value)) amountError.value = ''
+  if (isValidAmount(amount.value)) amountError.value = false
 }
 
 function handleCategoryInput() {
-  if (category.value.trim()) categoryError.value = ''
+  if (category.value.trim()) categoryError.value = false
 }
 
 function clearLocation() {
   location.value = ''
-  locationError.value = ''
+  locationError.value = false
 }
 
 function clearAmount() {
   amount.value = ''
-  amountError.value = ''
+  amountError.value = false
 }
 
 function clearCategory() {
   category.value = ''
-  categoryError.value = ''
+  categoryError.value = false
 }
 
 function submitSearch() {
-  locationError.value = location.value.trim() ? '' : '請輸入消費地點'
-  amountError.value = isValidAmount(amount.value) ? '' : '請輸入大於 0 的消費金額'
-  categoryError.value = category.value.trim() ? '' : '請輸入品項或類別'
+  locationError.value = !location.value.trim()
+  amountError.value = !isValidAmount(amount.value)
+  categoryError.value = !category.value.trim()
 
   if (locationError.value || amountError.value || categoryError.value) return
 
@@ -74,15 +76,15 @@ function submitSearch() {
 
     <main class="workspace">
       <section class="workspace__intro" aria-labelledby="page-title">
-        <h1 id="page-title">這筆消費，<br />該刷哪張卡？</h1>
-        <p class="workspace__lede">輸入消費地點、金額與品項，查詢適合使用的信用卡。</p>
+        <h1 id="page-title">{{ t('home.titleFirst') }}<br />{{ t('home.titleSecond') }}</h1>
+        <p class="workspace__lede">{{ t('home.description') }}</p>
       </section>
 
       <form class="search-panel" novalidate @submit.prevent="submitSearch">
         <header class="search-panel__header">
           <div>
-            <h2>查詢消費資訊</h2>
-            <p>填寫這次消費的基本資訊。</p>
+            <h2>{{ t('home.formTitle') }}</h2>
+            <p>{{ t('home.formDescription') }}</p>
           </div>
           <Search :size="22" :stroke-width="1.8" aria-hidden="true" />
         </header>
@@ -90,8 +92,8 @@ function submitSearch() {
         <div class="search-panel__body">
           <div class="field">
             <label for="location">
-              <span>消費地點</span>
-              <span class="field__required">必填</span>
+              <span>{{ t('fields.location') }}</span>
+              <span class="field__required">{{ t('fields.required') }}</span>
             </label>
             <div class="input-shell" :class="{ 'input-shell--error': locationError }">
               <Store :size="21" :stroke-width="1.8" aria-hidden="true" />
@@ -101,7 +103,7 @@ function submitSearch() {
                 name="location"
                 type="text"
                 autocomplete="off"
-                placeholder="例如：全聯、蝦皮、東京"
+                :placeholder="t('fields.locationPlaceholder')"
                 :aria-invalid="locationError ? 'true' : 'false'"
                 aria-describedby="location-message"
                 @input="handleLocationInput"
@@ -110,7 +112,7 @@ function submitSearch() {
                 <button
                   v-if="location"
                   type="button"
-                  aria-label="清除消費地點"
+                  :aria-label="t('fields.clearLocation')"
                   @click="clearLocation"
                 >
                   <CircleX :size="20" aria-hidden="true" />
@@ -123,14 +125,14 @@ function submitSearch() {
               :class="{ 'field__message--error': locationError }"
               :role="locationError ? 'alert' : undefined"
             >
-              {{ locationError }}
+              {{ locationError ? t('validation.locationRequired') : '' }}
             </p>
           </div>
 
           <div class="field">
             <label for="amount">
-              <span>金額（以新臺幣計算）</span>
-              <span class="field__required">必填</span>
+              <span>{{ t('fields.amount') }}</span>
+              <span class="field__required">{{ t('fields.required') }}</span>
             </label>
             <div class="input-shell" :class="{ 'input-shell--error': amountError }">
               <Banknote :size="21" :stroke-width="1.8" aria-hidden="true" />
@@ -141,14 +143,19 @@ function submitSearch() {
                 inputmode="numeric"
                 pattern="[0-9]*"
                 autocomplete="off"
-                placeholder="例如：2,500"
+                :placeholder="t('fields.amountPlaceholder')"
                 :value="formattedAmount"
                 :aria-invalid="amountError ? 'true' : 'false'"
                 aria-describedby="amount-message"
                 @input="handleAmountInput"
               />
               <span class="input-shell__action">
-                <button v-if="amount" type="button" aria-label="清除消費金額" @click="clearAmount">
+                <button
+                  v-if="amount"
+                  type="button"
+                  :aria-label="t('fields.clearAmount')"
+                  @click="clearAmount"
+                >
                   <CircleX :size="20" aria-hidden="true" />
                 </button>
               </span>
@@ -159,14 +166,14 @@ function submitSearch() {
               :class="{ 'field__message--error': amountError }"
               :role="amountError ? 'alert' : undefined"
             >
-              {{ amountError }}
+              {{ amountError ? t('validation.amountPositive') : '' }}
             </p>
           </div>
 
           <div class="field">
             <label for="category">
-              <span>品項或類別</span>
-              <span class="field__required">必填</span>
+              <span>{{ t('fields.category') }}</span>
+              <span class="field__required">{{ t('fields.required') }}</span>
             </label>
             <div class="input-shell" :class="{ 'input-shell--error': categoryError }">
               <Tag :size="21" :stroke-width="1.8" aria-hidden="true" />
@@ -176,7 +183,7 @@ function submitSearch() {
                 name="category"
                 type="text"
                 autocomplete="off"
-                placeholder="例如：餐飲、影音、機票"
+                :placeholder="t('fields.categoryPlaceholder')"
                 :aria-invalid="categoryError ? 'true' : 'false'"
                 aria-describedby="category-message"
                 @input="handleCategoryInput"
@@ -185,7 +192,7 @@ function submitSearch() {
                 <button
                   v-if="category"
                   type="button"
-                  aria-label="清除品項或類別"
+                  :aria-label="t('fields.clearCategory')"
                   @click="clearCategory"
                 >
                   <CircleX :size="20" aria-hidden="true" />
@@ -198,13 +205,13 @@ function submitSearch() {
               :class="{ 'field__message--error': categoryError }"
               :role="categoryError ? 'alert' : undefined"
             >
-              {{ categoryError }}
+              {{ categoryError ? t('validation.categoryRequired') : '' }}
             </p>
           </div>
 
           <button class="search-panel__submit" type="submit">
             <Search :size="20" aria-hidden="true" />
-            搜尋信用卡推薦
+            {{ t('home.submit') }}
           </button>
         </div>
       </form>

@@ -72,7 +72,25 @@ def parse_model_json(text: str) -> dict[str, Any]:
 _NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
 _WINDOW = 6
 # Vocabulary a campaign query legitimately needs; excluded from the copied-text check.
-_GENERIC_TERMS = ("信用卡", "回饋", "活動", "登錄", "官方", "優惠", "加碼", "現金回饋", "點數")
+_GENERIC_TERMS = (
+    "信用卡",
+    "回饋",
+    "活動",
+    "登錄",
+    "官方",
+    "優惠",
+    "加碼",
+    "現金回饋",
+    "點數",
+    "credit card",
+    "reward",
+    "offer",
+    "registration",
+    "official",
+    "promotion",
+    "cashback",
+    "points",
+)
 
 
 def query_problem(

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { flushPromises, mount } from '@vue/test-utils'
+import { i18n, setLocale } from '../../i18n'
 import CardManagementView from '../CardManagementView.vue'
 
 const apiMocks = vi.hoisted(() => ({
@@ -73,6 +74,7 @@ function buildGroupedCatalogCards() {
 function mountCardManagement() {
   return mount(CardManagementView, {
     global: {
+      plugins: [i18n],
       stubs: {
         SiteHeader: true,
       },
@@ -81,6 +83,7 @@ function mountCardManagement() {
 }
 
 beforeEach(() => {
+  setLocale('zh-TW', false)
   apiMocks.delete.mockReset()
   apiMocks.get.mockReset()
   apiMocks.post.mockReset()

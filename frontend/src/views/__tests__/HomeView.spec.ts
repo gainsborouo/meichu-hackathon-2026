@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import type { User } from 'firebase/auth'
 import { createPinia } from 'pinia'
+import { i18n, LOCALE_STORAGE_KEY, setLocale } from '../../i18n'
 import { useAuthStore } from '../../stores/authStore'
 import HomeView from '../HomeView.vue'
 
@@ -45,12 +46,13 @@ function mountHome(user: MockAuthUser | null = null) {
 
   return mount(HomeView, {
     global: {
-      plugins: [pinia],
+      plugins: [pinia, i18n],
     },
   })
 }
 
 beforeEach(() => {
+  setLocale('zh-TW', false)
   vi.clearAllMocks()
   authMocks.signInWithPopup.mockResolvedValue({})
   authMocks.signOut.mockResolvedValue(undefined)
@@ -78,6 +80,23 @@ describe('HomeView', () => {
         .exists(),
     ).toBe(true)
     expect(wrapper.get('button[type="submit"]').text()).toContain('搜尋信用卡推薦')
+  })
+
+  it('switches the interface and existing validation messages without reloading', async () => {
+    localStorage.removeItem(LOCALE_STORAGE_KEY)
+    const wrapper = mountHome()
+
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.get('[role="alert"]').text()).toBe('請輸入消費地點')
+
+    await wrapper.get<HTMLSelectElement>('.topbar__language-select').setValue('en-US')
+
+    expect(wrapper.get('h1').text()).toBe('Which card should you usefor this purchase?')
+    expect(wrapper.get('[role="alert"]').text()).toBe('Enter a store or location')
+    expect(wrapper.get('button[type="submit"]').text()).toContain('Find the Best Card')
+    expect(document.documentElement.lang).toBe('en-US')
+    expect(document.title).toBe('Credit Card Recommender')
+    expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe('en-US')
   })
 
   it('signs in with Google from the existing login button', async () => {

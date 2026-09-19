@@ -2,9 +2,11 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { CreditCard, ExternalLink, LoaderCircle, Search, TriangleAlert } from '@lucide/vue'
 import { storeToRefs } from 'pinia'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter, type LocationQueryValue } from 'vue-router'
 
 import SiteHeader from '../components/SiteHeader.vue'
+import type { Locale } from '../i18n'
 import { useAuthStore } from '../stores/authStore'
 
 const STREAM_URL = '/api/v1/recommendations/stream'
@@ -15,6 +17,7 @@ interface RecommendationRequest {
   store_name: string
   price: number
   currency: 'TWD'
+  locale: Locale
 }
 
 interface CardRef {
@@ -78,40 +81,43 @@ type SearchState = 'idle' | 'loading' | 'success' | 'error' | 'unauthenticated'
 
 class StreamFailure extends Error {}
 
-const GENERIC_ERROR = '無法取得信用卡推薦，請稍後再試。'
-const LOGIN_REQUIRED = '請先登入 Google 帳號，才能取得信用卡推薦。'
-const DEFAULT_PROGRESS = '系統正在比對持卡資料與優惠活動，請稍候。'
+const GENERIC_ERROR_KEY = 'recommendations.genericError'
+const LOGIN_REQUIRED_KEY = 'recommendations.loginRequired'
+const DEFAULT_PROGRESS_KEY = 'recommendations.defaultProgress'
 const STAGE_PROGRESS: Record<string, string> = {
-  preprocessing: '正在整理您的持卡資料與優惠活動…',
-  official_verification: '正在核對銀行官方活動…',
+  preprocessing: 'recommendations.preprocessingProgress',
+  official_verification: 'recommendations.verificationProgress',
 }
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const { ready: authReady, user: authUser } = storeToRefs(authStore)
+const { locale, t } = useI18n()
 
 const platform = ref('')
 const amount = ref('')
 const category = ref('')
-const platformError = ref('')
-const amountError = ref('')
-const categoryError = ref('')
+const platformError = ref(false)
+const amountError = ref(false)
+const categoryError = ref(false)
 const searchState = ref<SearchState>('idle')
 const searchResult = ref<RecommendationResponse | null>(null)
-const requestError = ref('')
-const progressMessage = ref(DEFAULT_PROGRESS)
+const requestErrorKey = ref('')
+const progressKey = ref(DEFAULT_PROGRESS_KEY)
 const failedImageIds = ref(new Set<string>())
 let activeController: AbortController | null = null
 
 const formattedAmount = computed(() => amount.value.replace(/\B(?=(\d{3})+(?!\d))/g, ','))
+const requestError = computed(() => (requestErrorKey.value ? t(requestErrorKey.value) : ''))
+const progressMessage = computed(() => t(progressKey.value))
 
 const modeNotice = computed(() => {
   if (!searchResult.value) return ''
 
   return searchResult.value.mode === 'registration'
-    ? '依您的設定，僅列出需要登錄的優惠。'
-    : '依您的設定，僅列出不需登錄的優惠。'
+    ? t('recommendations.registrationMode')
+    : t('recommendations.noRegistrationMode')
 })
 
 function queryString(value: LocationQueryValue | LocationQueryValue[] | undefined) {
@@ -129,9 +135,9 @@ function isValidAmount(value: string) {
 }
 
 function validateSearch() {
-  platformError.value = platform.value.trim() ? '' : '請輸入消費地點'
-  amountError.value = isValidAmount(amount.value) ? '' : '請輸入有效且大於 0 的消費金額'
-  categoryError.value = category.value.trim() ? '' : '請輸入品項或類別'
+  platformError.value = !platform.value.trim()
+  amountError.value = !isValidAmount(amount.value)
+  categoryError.value = !category.value.trim()
 
   return !platformError.value && !amountError.value && !categoryError.value
 }
@@ -154,7 +160,7 @@ function routeHasCurrentQuery() {
 }
 
 function handlePlatformInput() {
-  if (platform.value.trim()) platformError.value = ''
+  if (platform.value.trim()) platformError.value = false
 }
 
 function handleAmountInput(event: Event) {
@@ -162,11 +168,11 @@ function handleAmountInput(event: Event) {
   amount.value = input.value.replace(/\D/g, '').replace(/^0+(?=\d)/, '')
   input.value = formattedAmount.value
 
-  if (isValidAmount(amount.value)) amountError.value = ''
+  if (isValidAmount(amount.value)) amountError.value = false
 }
 
 function handleCategoryInput() {
-  if (category.value.trim()) categoryError.value = ''
+  if (category.value.trim()) categoryError.value = false
 }
 
 function parseSseBlock(block: string): SseEvent | null {
@@ -275,8 +281,8 @@ async function loadRecommendations() {
   const isCurrent = () => activeController === controller && !controller.signal.aborted
 
   searchResult.value = null
-  requestError.value = ''
-  progressMessage.value = DEFAULT_PROGRESS
+  requestErrorKey.value = ''
+  progressKey.value = DEFAULT_PROGRESS_KEY
 
   const user = authUser.value
   if (!user) {
@@ -292,6 +298,7 @@ async function loadRecommendations() {
     store_name: platform.value.trim(),
     price: Number(amount.value),
     currency: 'TWD',
+    locale: locale.value as Locale,
   }
 
   try {
@@ -311,9 +318,9 @@ async function loadRecommendations() {
     if (!isCurrent()) return
 
     if (!response.ok) {
-      throw new StreamFailure(response.status === 401 ? LOGIN_REQUIRED : GENERIC_ERROR)
+      throw new StreamFailure(response.status === 401 ? LOGIN_REQUIRED_KEY : GENERIC_ERROR_KEY)
     }
-    if (!response.body) throw new StreamFailure(GENERIC_ERROR)
+    if (!response.body) throw new StreamFailure(GENERIC_ERROR_KEY)
 
     let received = false
 
@@ -322,28 +329,28 @@ async function loadRecommendations() {
 
       if (event.event === 'searching') {
         const stage = parsePayload(event.data).stage
-        progressMessage.value =
-          (typeof stage === 'string' && STAGE_PROGRESS[stage]) || DEFAULT_PROGRESS
+        progressKey.value =
+          (typeof stage === 'string' && STAGE_PROGRESS[stage]) || DEFAULT_PROGRESS_KEY
       } else if (event.event === 'recommendation') {
         searchResult.value = parseRecommendation(event.data)
         searchState.value = 'success'
         received = true
       } else if (event.event === 'error') {
-        if (!received) throw new StreamFailure(GENERIC_ERROR)
+        if (!received) throw new StreamFailure(GENERIC_ERROR_KEY)
       }
     })
 
     if (!isCurrent()) return
-    if (!received) throw new StreamFailure(GENERIC_ERROR)
+    if (!received) throw new StreamFailure(GENERIC_ERROR_KEY)
   } catch (error) {
     if (!isCurrent()) return
 
     searchResult.value = null
     searchState.value = 'error'
-    requestError.value =
-      error instanceof StreamFailure && error.message === LOGIN_REQUIRED
-        ? LOGIN_REQUIRED
-        : GENERIC_ERROR
+    requestErrorKey.value =
+      error instanceof StreamFailure && error.message === LOGIN_REQUIRED_KEY
+        ? LOGIN_REQUIRED_KEY
+        : GENERIC_ERROR_KEY
   } finally {
     if (activeController === controller) activeController = null
   }
@@ -354,7 +361,7 @@ async function submitSearch() {
     activeController?.abort()
     searchResult.value = null
     searchState.value = 'idle'
-    requestError.value = ''
+    requestErrorKey.value = ''
     return
   }
 
@@ -370,7 +377,7 @@ function prepareRouteSearch() {
   activeController?.abort()
   syncFormFromRoute()
   searchResult.value = null
-  requestError.value = ''
+  requestErrorKey.value = ''
 
   if (!validateSearch()) {
     searchState.value = 'idle'
@@ -379,32 +386,36 @@ function prepareRouteSearch() {
 
   if (!authReady.value) {
     searchState.value = 'loading'
-    progressMessage.value = DEFAULT_PROGRESS
+    progressKey.value = DEFAULT_PROGRESS_KEY
     return
   }
 
   void loadRecommendations()
 }
 
-const twdFormatter = new Intl.NumberFormat('zh-TW', {
-  style: 'currency',
-  currency: 'TWD',
-  maximumFractionDigits: 2,
-})
-
 function formatTwd(amountTwd: number) {
-  return twdFormatter.format(amountTwd)
+  return new Intl.NumberFormat(locale.value, {
+    style: 'currency',
+    currency: 'TWD',
+    maximumFractionDigits: 2,
+  }).format(amountTwd)
 }
 
 function formatDate(value: string) {
-  return value.replace(/-/g, '/')
+  const [year, month, day] = value.split('-').map(Number)
+  if (!year || !month || !day) return value
+
+  return new Intl.DateTimeFormat(locale.value, {
+    dateStyle: 'medium',
+    timeZone: 'Asia/Taipei',
+  }).format(new Date(Date.UTC(year, month - 1, day)))
 }
 
 function formatDateTime(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
 
-  return new Intl.DateTimeFormat('zh-TW', {
+  return new Intl.DateTimeFormat(locale.value, {
     dateStyle: 'medium',
     timeStyle: 'short',
     timeZone: 'Asia/Taipei',
@@ -434,7 +445,7 @@ function markImageFailed(artworkId: string) {
   failedImageIds.value = nextIds
 }
 
-watch([() => route.fullPath, authReady], prepareRouteSearch, { immediate: true })
+watch([() => route.fullPath, authReady, locale], prepareRouteSearch, { immediate: true })
 
 onBeforeUnmount(() => activeController?.abort())
 </script>
@@ -446,22 +457,27 @@ onBeforeUnmount(() => activeController?.abort())
     <main class="recommendations-workspace" :aria-busy="searchState === 'loading'">
       <header class="page-intro">
         <div>
-          <p class="page-intro__eyebrow">信用卡推薦</p>
-          <h1>這筆消費該刷哪張卡</h1>
-          <p>調整消費條件後，可直接重新取得推薦結果。</p>
+          <p class="page-intro__eyebrow">{{ t('recommendations.eyebrow') }}</p>
+          <h1>{{ t('recommendations.title') }}</h1>
+          <p>{{ t('recommendations.description') }}</p>
         </div>
       </header>
 
-      <form class="query-form" novalidate aria-label="修改搜尋條件" @submit.prevent="submitSearch">
+      <form
+        class="query-form"
+        novalidate
+        :aria-label="t('recommendations.formLabel')"
+        @submit.prevent="submitSearch"
+      >
         <div class="query-field">
-          <label for="recommendation-platform">消費地點</label>
+          <label for="recommendation-platform">{{ t('fields.location') }}</label>
           <input
             id="recommendation-platform"
             v-model="platform"
             name="platform"
             type="text"
             autocomplete="off"
-            placeholder="例如：全聯、蝦皮、東京"
+            :placeholder="t('fields.locationPlaceholder')"
             :aria-invalid="platformError ? 'true' : 'false'"
             aria-describedby="recommendation-platform-message"
             @input="handlePlatformInput"
@@ -471,12 +487,12 @@ onBeforeUnmount(() => activeController?.abort())
             :class="{ 'query-field__error': platformError }"
             :role="platformError ? 'alert' : undefined"
           >
-            {{ platformError }}
+            {{ platformError ? t('validation.locationRequired') : '' }}
           </p>
         </div>
 
         <div class="query-field">
-          <label for="recommendation-price">金額（新臺幣）</label>
+          <label for="recommendation-price">{{ t('fields.amountShort') }}</label>
           <input
             id="recommendation-price"
             name="price"
@@ -484,7 +500,7 @@ onBeforeUnmount(() => activeController?.abort())
             inputmode="numeric"
             pattern="[0-9]*"
             autocomplete="off"
-            placeholder="例如：2,500"
+            :placeholder="t('fields.amountPlaceholder')"
             :value="formattedAmount"
             :aria-invalid="amountError ? 'true' : 'false'"
             aria-describedby="recommendation-price-message"
@@ -495,19 +511,19 @@ onBeforeUnmount(() => activeController?.abort())
             :class="{ 'query-field__error': amountError }"
             :role="amountError ? 'alert' : undefined"
           >
-            {{ amountError }}
+            {{ amountError ? t('validation.amountValidPositive') : '' }}
           </p>
         </div>
 
         <div class="query-field">
-          <label for="recommendation-category">品項或類別</label>
+          <label for="recommendation-category">{{ t('fields.category') }}</label>
           <input
             id="recommendation-category"
             v-model="category"
             name="category"
             type="text"
             autocomplete="off"
-            placeholder="例如：餐飲、影音、機票"
+            :placeholder="t('fields.categoryPlaceholder')"
             :aria-invalid="categoryError ? 'true' : 'false'"
             aria-describedby="recommendation-category-message"
             @input="handleCategoryInput"
@@ -517,7 +533,7 @@ onBeforeUnmount(() => activeController?.abort())
             :class="{ 'query-field__error': categoryError }"
             :role="categoryError ? 'alert' : undefined"
           >
-            {{ categoryError }}
+            {{ categoryError ? t('validation.categoryRequired') : '' }}
           </p>
         </div>
 
@@ -529,7 +545,11 @@ onBeforeUnmount(() => activeController?.abort())
             aria-hidden="true"
           />
           <Search v-else :size="18" aria-hidden="true" />
-          {{ searchState === 'loading' ? '搜尋中…' : '重新搜尋' }}
+          {{
+            searchState === 'loading'
+              ? t('recommendations.searching')
+              : t('recommendations.searchAgain')
+          }}
         </button>
       </form>
 
@@ -541,7 +561,7 @@ onBeforeUnmount(() => activeController?.abort())
       >
         <LoaderCircle class="state-panel__spinner" :size="34" aria-hidden="true" />
         <div>
-          <h2>正在計算信用卡推薦</h2>
+          <h2>{{ t('recommendations.loadingTitle') }}</h2>
           <p>{{ progressMessage }}</p>
         </div>
       </section>
@@ -549,8 +569,8 @@ onBeforeUnmount(() => activeController?.abort())
       <section v-else-if="searchState === 'unauthenticated'" class="state-panel state-panel--error">
         <TriangleAlert :size="30" aria-hidden="true" />
         <div>
-          <h2 role="alert">{{ LOGIN_REQUIRED }}</h2>
-          <p>登入後才能依據您持有的信用卡計算推薦，搜尋條件已保留。</p>
+          <h2 role="alert">{{ t('recommendations.loginRequired') }}</h2>
+          <p>{{ t('recommendations.unauthenticatedDescription') }}</p>
         </div>
       </section>
 
@@ -558,8 +578,10 @@ onBeforeUnmount(() => activeController?.abort())
         <TriangleAlert :size="30" aria-hidden="true" />
         <div>
           <h2 role="alert">{{ requestError }}</h2>
-          <p>搜尋條件已保留，可直接重新送出。</p>
-          <button type="button" @click="submitSearch">重新搜尋</button>
+          <p>{{ t('recommendations.retryDescription') }}</p>
+          <button type="button" @click="submitSearch">
+            {{ t('recommendations.searchAgain') }}
+          </button>
         </div>
       </section>
 
@@ -570,8 +592,8 @@ onBeforeUnmount(() => activeController?.abort())
       >
         <header class="ranking-heading">
           <div>
-            <p>推薦結果</p>
-            <h2 id="ranking-title">目前最適合的信用卡</h2>
+            <p>{{ t('recommendations.results') }}</p>
+            <h2 id="ranking-title">{{ t('recommendations.rankingTitle') }}</h2>
           </div>
           <span>{{ modeNotice }}</span>
         </header>
@@ -590,28 +612,33 @@ onBeforeUnmount(() => activeController?.abort())
                     !failedImageIds.has(searchResult.best_now.card.artwork_id)
                   "
                   :src="`/card-art/${searchResult.best_now.card.artwork_id}.webp`"
-                  :alt="`${searchResult.best_now.card.bank_name ?? ''}${searchResult.best_now.card.name}卡面`"
+                  :alt="
+                    t('common.cardArtworkAlt', {
+                      bank: searchResult.best_now.card.bank_name ?? '',
+                      name: searchResult.best_now.card.name,
+                    })
+                  "
                   width="640"
                   height="400"
                   @error="markImageFailed(searchResult.best_now.card.artwork_id)"
                 />
                 <div v-else class="card-art__fallback">
                   <CreditCard :size="38" :stroke-width="1.5" aria-hidden="true" />
-                  <span>無卡面圖片</span>
+                  <span>{{ t('common.noCardArtwork') }}</span>
                 </div>
               </div>
 
               <div class="card-identity">
                 <div class="card-badges">
-                  <span class="best-badge">目前最佳</span>
+                  <span class="best-badge">{{ t('recommendations.bestNow') }}</span>
                   <span
                     class="verification-badge"
                     :class="`verification-badge--${searchResult.best_now.verification_status}`"
                   >
                     {{
                       searchResult.best_now.verification_status === 'verified'
-                        ? '已查證官方來源'
-                        : '尚未查證官方來源'
+                        ? t('recommendations.verified')
+                        : t('recommendations.unverified')
                     }}
                   </span>
                 </div>
@@ -620,9 +647,11 @@ onBeforeUnmount(() => activeController?.abort())
               </div>
 
               <div class="reward-summary">
-                <span>預估回饋</span>
+                <span>{{ t('recommendations.estimatedReward') }}</span>
                 <strong>{{ formatTwd(searchResult.best_now.estimated_reward_twd) }}</strong>
-                <span>回饋率 {{ searchResult.best_now.rate_display }}</span>
+                <span>{{
+                  t('recommendations.rewardRate', { rate: searchResult.best_now.rate_display })
+                }}</span>
               </div>
             </div>
 
@@ -630,13 +659,21 @@ onBeforeUnmount(() => activeController?.abort())
               <p class="recommendation-reason">{{ searchResult.best_now.reason }}</p>
 
               <div class="reward-meta">
-                <p>活動：{{ searchResult.best_now.campaign_title }}</p>
+                <p>
+                  {{
+                    t('recommendations.campaign', { title: searchResult.best_now.campaign_title })
+                  }}
+                </p>
                 <div class="reward-flags">
                   <span v-if="searchResult.best_now.cap_description">
                     {{ searchResult.best_now.cap_description }}
                   </span>
                   <span>
-                    {{ searchResult.best_now.requires_registration ? '需要登錄' : '不需登錄' }}
+                    {{
+                      searchResult.best_now.requires_registration
+                        ? t('recommendations.registrationRequired')
+                        : t('recommendations.registrationNotRequired')
+                    }}
                   </span>
                 </div>
               </div>
@@ -654,7 +691,7 @@ onBeforeUnmount(() => activeController?.abort())
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  前往登錄
+                  {{ t('recommendations.register') }}
                   <ExternalLink :size="15" aria-hidden="true" />
                 </a>
                 <a
@@ -674,8 +711,8 @@ onBeforeUnmount(() => activeController?.abort())
           <section v-else class="state-panel" data-testid="no-best-now">
             <CreditCard :size="30" aria-hidden="true" />
             <div>
-              <h2>目前沒有適用的優惠</h2>
-              <p>{{ searchResult.explanation ?? '持有的信用卡目前沒有符合此消費條件的優惠。' }}</p>
+              <h2>{{ t('recommendations.noOfferTitle') }}</h2>
+              <p>{{ searchResult.explanation ?? t('recommendations.noOfferDescription') }}</p>
             </div>
           </section>
 
@@ -693,37 +730,46 @@ onBeforeUnmount(() => activeController?.abort())
                     !failedImageIds.has(searchResult.wait_suggestion.card.artwork_id)
                   "
                   :src="`/card-art/${searchResult.wait_suggestion.card.artwork_id}.webp`"
-                  :alt="`${searchResult.wait_suggestion.card.bank_name ?? ''}${searchResult.wait_suggestion.card.name}卡面`"
+                  :alt="
+                    t('common.cardArtworkAlt', {
+                      bank: searchResult.wait_suggestion.card.bank_name ?? '',
+                      name: searchResult.wait_suggestion.card.name,
+                    })
+                  "
                   width="640"
                   height="400"
                   @error="markImageFailed(searchResult.wait_suggestion.card.artwork_id)"
                 />
                 <div v-else class="card-art__fallback">
                   <CreditCard :size="38" :stroke-width="1.5" aria-hidden="true" />
-                  <span>無卡面圖片</span>
+                  <span>{{ t('common.noCardArtwork') }}</span>
                 </div>
               </div>
 
               <div class="card-identity">
                 <div class="card-badges">
-                  <span class="wait-badge">等待活動</span>
+                  <span class="wait-badge">{{ t('recommendations.waitForCampaign') }}</span>
                 </div>
                 <h3 id="wait-title">{{ searchResult.wait_suggestion.card.name }}</h3>
                 <p>{{ searchResult.wait_suggestion.card.bank_name }}</p>
               </div>
 
               <div class="reward-summary">
-                <span>預估回饋</span>
+                <span>{{ t('recommendations.estimatedReward') }}</span>
                 <strong>{{ formatTwd(searchResult.wait_suggestion.estimated_reward_twd) }}</strong>
                 <span>
-                  比現在多 {{ formatTwd(searchResult.wait_suggestion.estimated_extra_reward_twd) }}
+                  {{
+                    t('recommendations.extraReward', {
+                      amount: formatTwd(searchResult.wait_suggestion.estimated_extra_reward_twd),
+                    })
+                  }}
                 </span>
               </div>
             </div>
 
             <div class="recommendation-card__body">
               <dl class="wait-facts">
-                <dt>活動開始日</dt>
+                <dt>{{ t('recommendations.campaignStarts') }}</dt>
                 <dd>{{ formatDate(searchResult.wait_suggestion.starts_at) }}</dd>
               </dl>
               <p class="recommendation-reason">{{ searchResult.wait_suggestion.reason }}</p>
@@ -745,7 +791,7 @@ onBeforeUnmount(() => activeController?.abort())
               </div>
 
               <div class="calendar-draft" data-testid="calendar-draft">
-                <h4>行事曆草稿</h4>
+                <h4>{{ t('recommendations.calendarDraft') }}</h4>
                 <p class="calendar-draft__title">
                   {{ searchResult.wait_suggestion.calendar_draft.title }}
                 </p>
@@ -755,7 +801,7 @@ onBeforeUnmount(() => activeController?.abort())
                 <p class="calendar-draft__notes">
                   {{ searchResult.wait_suggestion.calendar_draft.notes }}
                 </p>
-                <p class="calendar-draft__hint">這只是草稿，尚未建立任何行事曆事件。</p>
+                <p class="calendar-draft__hint">{{ t('recommendations.calendarDraftHint') }}</p>
               </div>
             </div>
           </article>

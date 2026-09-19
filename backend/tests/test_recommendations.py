@@ -196,6 +196,24 @@ async def test_threshold_cap_date_and_platform_preprocess(session, world):
     assert "big-min#0" in ids(p2.now_candidates)
 
 
+async def test_en_us_localizes_backend_owned_copy(session, world):
+    p = await pre(session, world, locale="en-US")
+    capped = next(c for c in p.now_candidates if c["candidate_id"] == "capped-gogo#0")
+    assert capped["cap_description"] == "Monthly cap: 100 points"
+    assert p.model_payload()["request"]["locale"] == "en-US"
+
+    result = service.assemble(p, _raw())
+    assert result.wait_suggestion is not None
+    assert result.wait_suggestion.calendar_draft.title == "Buy AirPods Pro at momo"
+    assert "Estimated reward:" in result.wait_suggestion.calendar_draft.notes
+
+    p.now_candidates = []
+    p.future_candidates = []
+    assert "do not require registration" in service.empty_explanation(p)
+    p.held_cards = []
+    assert service.empty_explanation(p).startswith("No cards have been added")
+
+
 async def test_candidates_are_listed_neutrally_not_by_reward(session, world):
     p = await pre(session, world)
     keys = [(c["card"]["bank_name"], c["card"]["name"], c["sale_id"]) for c in p.now_candidates]
@@ -429,6 +447,14 @@ async def test_stream_requires_auth(api):
 async def test_stream_validates_the_request(api):
     bad = {**REQ, "price": 0}
     assert (await api.post(f"{P}/recommendations/stream", json=bad)).status_code == 422
+    bad_locale = {**REQ, "locale": "en"}
+    assert (await api.post(f"{P}/recommendations/stream", json=bad_locale)).status_code == 422
+
+
+async def test_stream_passes_en_us_locale_to_the_agent(api):
+    api.agent.answer = _raw()
+    await api.post(f"{P}/recommendations/stream", json={**REQ, "locale": "en-US"})
+    assert api.agent.calls[0]["request"]["locale"] == "en-US"
 
 
 async def test_old_search_endpoint_is_gone(api):
@@ -455,6 +481,7 @@ def test_model_json_parsing_and_skill_loading():
         parse_model_json("not json")
     text = read_skill_text()
     assert "final ranker" in text and "official-source" in text.lower()
+    assert "en-US" in text and "request's `locale`" in text
     assert not text.startswith("---")
 
 

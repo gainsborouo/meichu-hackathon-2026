@@ -5,6 +5,7 @@ import type { User } from 'firebase/auth'
 import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter, type LocationQueryRaw } from 'vue-router'
 
+import { i18n, setLocale } from '../../i18n'
 import { useAuthStore } from '../../stores/authStore'
 import RecommendationsView from '../RecommendationsView.vue'
 
@@ -170,7 +171,7 @@ async function mountRecommendations({
 
   const wrapper = mount(RecommendationsView, {
     global: {
-      plugins: [pinia, router],
+      plugins: [pinia, router, i18n],
       stubs: { SiteHeader: true },
     },
   })
@@ -185,6 +186,7 @@ function requestInit(call = 0) {
 }
 
 beforeEach(() => {
+  setLocale('zh-TW', false)
   fetchMock.mockReset()
   fetchMock.mockImplementation(() => Promise.resolve(okResponse(chunked(fullStream))))
   vi.stubGlobal('fetch', fetchMock)
@@ -216,8 +218,28 @@ describe('RecommendationsView', () => {
       store_name: 'momo',
       price: 7490,
       currency: 'TWD',
+      locale: 'zh-TW',
     })
     expect(JSON.parse(init.body as string)).not.toHaveProperty('include_unowned')
+  })
+
+  it('cancels and repeats a valid search when the locale changes', async () => {
+    const first = controlledStream()
+    fetchMock
+      .mockImplementationOnce(() => Promise.resolve(okResponse(first.body)))
+      .mockImplementationOnce(() => Promise.resolve(okResponse(chunked(fullStream))))
+
+    const { wrapper } = await mountRecommendations()
+    expect(fetchMock).toHaveBeenCalledOnce()
+
+    setLocale('en-US')
+    await settle()
+
+    expect(first.isCancelled()).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(requestInit(1).body as string)).toMatchObject({ locale: 'en-US' })
+    expect(wrapper.get('#ranking-title').text()).toBe('Best Card Right Now')
+    expect(wrapper.get('[data-testid="best-now"]').text()).toContain('NT$224.70')
   })
 
   it('shows searching progress in the loading state until the recommendation arrives', async () => {
@@ -230,7 +252,7 @@ describe('RecommendationsView', () => {
 
     stream.push(sse('searching', { stage: 'preprocessing' }))
     await settle()
-    expect(wrapper.get('[role="status"]').text()).toContain('正在整理您的持卡資料與優惠活動')
+    expect(wrapper.get('[role="status"]').text()).toContain('正在整理你的持卡資料與優惠活動')
 
     stream.push(sse('searching', { stage: 'official_verification' }))
     await settle()
@@ -272,7 +294,7 @@ describe('RecommendationsView', () => {
     expect(wait.text()).toContain('@GoGo 卡')
     expect(wait.text()).toContain('台新銀行')
     expect(wait.text()).not.toContain('Unicard')
-    expect(wait.text()).toContain('2026/09/23')
+    expect(wait.text()).toContain('2026年9月23日')
     expect(wait.text()).toContain('280')
     expect(wait.text()).toContain('55.3')
     expect(wait.text()).toContain('9/23 起有更高的網購回饋。')

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import type { User } from 'firebase/auth'
 import { createPinia } from 'pinia'
+import { i18n, setLocale } from '../../i18n'
 import { useAuthStore } from '../../stores/authStore'
 import UploadStatementView from '../UploadStatementView.vue'
 
@@ -23,7 +24,7 @@ function mountUploadStatement(user: User | null = signedInUser, authReady = true
 
   return mount(UploadStatementView, {
     global: {
-      plugins: [pinia],
+      plugins: [pinia, i18n],
       stubs: {
         SiteHeader: true,
       },
@@ -32,6 +33,7 @@ function mountUploadStatement(user: User | null = signedInUser, authReady = true
 }
 
 beforeEach(() => {
+  setLocale('zh-TW', false)
   apiMocks.get.mockReset()
   apiMocks.post.mockReset()
   Object.defineProperties(HTMLDialogElement.prototype, {
@@ -172,7 +174,7 @@ describe('UploadStatementView', () => {
     await flushPromises()
 
     expect(wrapper.get('dialog').attributes('open')).toBeDefined()
-    expect(wrapper.get('.analysis-empty').text()).toBe('尚無統計數據，請先上傳帳單。')
+    expect(wrapper.get('.analysis-empty').text()).toBe('尚無統計資料，請先上傳帳單。')
   })
 
   it('keeps request errors on the page and retries on the next click', async () => {

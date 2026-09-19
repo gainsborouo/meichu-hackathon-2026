@@ -6,13 +6,16 @@ The user message is one JSON object built by the backend.
 {
   "today": "2026-09-19",
   "mode": "no_registration" | "registration",
-  "request": {"product_name": "AirPods Pro", "store_name": "momo", "price": 7490, "currency": "TWD"},
+  "request": {"product_name": "AirPods Pro", "store_name": "momo", "price": 7490, "currency": "TWD", "locale": "zh-TW" | "en-US"},
   "held_cards": [{"id": "uuid", "bank_name": "玉山銀行", "name": "Unicard"}],
   "now_candidates": [Candidate],
   "future_candidates": [Candidate],
   "spend_context": {"latest_spend_report": "text or null", "recent_analyses": [...]}
 }
 ```
+
+`locale` controls the language of `reason` and `explanation`. It does not translate card,
+bank, campaign, or official-source titles.
 
 ## mode
 

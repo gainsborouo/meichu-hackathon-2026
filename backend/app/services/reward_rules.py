@@ -40,8 +40,16 @@ _CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
     "convenience": ("超商", "便利商店", "7-eleven", "統一超商", "全家"),
     "online_shopping": ("網購", "線上購物", "電商", "momo", "蝦皮", "pchome", "博客來", "購物網"),
     "shopping_retail": (
-        "百貨", "專櫃", "購物中心", "outlet", "高島屋", "漢神",
-        "3c", "電腦", "筆電", "手機",
+        "百貨",
+        "專櫃",
+        "購物中心",
+        "outlet",
+        "高島屋",
+        "漢神",
+        "3c",
+        "電腦",
+        "筆電",
+        "手機",
     ),
     "travel_lodging": ("訂房", "旅遊", "飯店", "機票", "agoda", "booking", "klook", "住宿"),
     "beauty_personal": ("藥妝", "美妝", "屈臣氏", "康是美", "寶雅"),
@@ -67,6 +75,7 @@ _PLATFORM_ALIASES: dict[str, tuple[str, ...]] = {
     "google_pay": ("google pay",),
     "cpc": ("中油",),
     "books": ("博客來",),
+    "pxmart": ("全聯", "px mart", "pxmart"),
 }
 
 _SCOPE_OVERSEAS = ("海外", "國外", "境外")

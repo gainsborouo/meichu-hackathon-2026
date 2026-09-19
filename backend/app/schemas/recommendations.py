@@ -10,6 +10,7 @@ class RecommendationRequest(BaseModel):
     store_name: str = Field(min_length=1, max_length=200)
     price: float = Field(gt=0)
     currency: Literal["TWD"] = "TWD"
+    locale: Literal["zh-TW", "en-US"] = "zh-TW"
 
 
 class CardRef(BaseModel):

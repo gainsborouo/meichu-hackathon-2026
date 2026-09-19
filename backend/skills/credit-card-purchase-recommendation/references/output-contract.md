@@ -20,6 +20,8 @@ Reply with one raw JSON object. No code fences.
 
 ## Rules
 
+- Write `reason` and `explanation` in `request.locale`: Traditional Chinese for `zh-TW`
+  and concise American English for `en-US`. Keep source titles in their original language.
 - `best_now.candidate_id` must be in `now_candidates`; `best_future.candidate_id` must be
   in `future_candidates`. Anything else is rejected and the whole answer is discarded.
 - `best_now` is `null` when `now_candidates` is empty or none plainly applies. Then

@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import { CircleCheck, CircleX, FileText, FileUp, LoaderCircle, TriangleAlert } from '@lucide/vue'
 import MarkdownIt from 'markdown-it'
 import { storeToRefs } from 'pinia'
+import { useI18n } from 'vue-i18n'
 import SiteHeader from '../components/SiteHeader.vue'
 import { api } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
@@ -21,20 +22,29 @@ markdown.renderer.rules.image = (tokens, index) => markdown.utils.escapeHtml(tok
 
 const authStore = useAuthStore()
 const { ready: authReady, user: authUser } = storeToRefs(authStore)
+const { t } = useI18n()
 const selectedFiles = ref<File[]>([])
 const uploadState = ref<UploadState>('idle')
-const message = ref('')
+const messageKey = ref('')
 const analysisState = ref<AnalysisState>('idle')
-const analysisError = ref('')
+const analysisError = ref(false)
 const analysisMarkdown = ref('')
 const analysisDialog = ref<HTMLDialogElement | null>(null)
 let analysisController: AbortController | null = null
 
 const analysisHtml = computed(() => markdown.render(analysisMarkdown.value))
+const message = computed(() => {
+  if (!messageKey.value) return ''
+  return messageKey.value === 'upload.uploadSuccess'
+    ? t(messageKey.value, selectedFiles.value.length)
+    : t(messageKey.value)
+})
 const analysisButtonLabel = computed(() => {
-  if (!authReady.value) return '確認登入狀態…'
-  if (!authUser.value) return '登入後查看'
-  return analysisState.value === 'loading' ? '載入中' : '我的帳單分析'
+  if (!authReady.value) return t('upload.analysisChecking')
+  if (!authUser.value) return t('upload.analysisLoginRequired')
+  return analysisState.value === 'loading'
+    ? t('upload.analysisLoading')
+    : t('upload.analysisButton')
 })
 
 onBeforeUnmount(() => analysisController?.abort())
@@ -44,18 +54,18 @@ function handleFileSelection(event: Event) {
 
   selectedFiles.value = Array.from(input.files ?? [])
   uploadState.value = 'idle'
-  message.value = ''
+  messageKey.value = ''
 }
 
 async function uploadStatement() {
   if (selectedFiles.value.length === 0) {
     uploadState.value = 'error'
-    message.value = '請先選擇帳單檔案。'
+    messageKey.value = 'upload.selectRequired'
     return
   }
 
   uploadState.value = 'uploading'
-  message.value = ''
+  messageKey.value = ''
 
   try {
     const formData = new FormData()
@@ -64,10 +74,10 @@ async function uploadStatement() {
     await api.post('/me/statements', formData)
 
     uploadState.value = 'success'
-    message.value = `已上傳 ${selectedFiles.value.length} 份帳單。`
+    messageKey.value = 'upload.uploadSuccess'
   } catch {
     uploadState.value = 'error'
-    message.value = '上傳失敗，請稍後再試。'
+    messageKey.value = 'upload.uploadFailed'
   }
 }
 
@@ -77,7 +87,7 @@ async function openAnalysis() {
   const controller = new AbortController()
   analysisController = controller
   analysisState.value = 'loading'
-  analysisError.value = ''
+  analysisError.value = false
   analysisMarkdown.value = ''
 
   try {
@@ -93,7 +103,7 @@ async function openAnalysis() {
     if (controller.signal.aborted) return
 
     analysisState.value = 'error'
-    analysisError.value = '無法取得帳單分析，請稍後再試。'
+    analysisError.value = true
   } finally {
     if (analysisController === controller) analysisController = null
   }
@@ -111,8 +121,8 @@ function closeAnalysis() {
     <main class="upload-workspace">
       <header class="upload-intro">
         <div>
-          <h1>上傳帳單</h1>
-          <p>選擇電子帳單檔案，送出後交由系統解析。</p>
+          <h1>{{ t('upload.title') }}</h1>
+          <p>{{ t('upload.description') }}</p>
         </div>
 
         <div class="analysis-entry">
@@ -137,7 +147,7 @@ function closeAnalysis() {
             class="upload-message upload-message--error analysis-entry__error"
             role="alert"
           >
-            {{ analysisError }}
+            {{ t('upload.analysisFailed') }}
           </p>
         </div>
       </header>
@@ -145,8 +155,8 @@ function closeAnalysis() {
       <form class="upload-panel" :data-state="uploadState" @submit.prevent="uploadStatement">
         <header class="upload-panel__header">
           <div>
-            <h2>電子帳單檔案</h2>
-            <p>可一次選擇多個檔案。</p>
+            <h2>{{ t('upload.filesTitle') }}</h2>
+            <p>{{ t('upload.filesDescription') }}</p>
           </div>
           <FileUp :size="22" :stroke-width="1.8" aria-hidden="true" />
         </header>
@@ -161,14 +171,16 @@ function closeAnalysis() {
             <span class="upload-dropzone__copy">
               <strong>
                 {{
-                  selectedFiles.length ? `已選擇 ${selectedFiles.length} 個檔案` : '選擇電子帳單'
+                  selectedFiles.length
+                    ? t('upload.selectedFiles', selectedFiles.length)
+                    : t('upload.selectStatement')
                 }}
               </strong>
               <span>
                 {{
                   selectedFiles.length
                     ? selectedFiles.map((file) => file.name).join('、')
-                    : '將檔案拖曳至此，或點選瀏覽檔案'
+                    : t('upload.dropzone')
                 }}
               </span>
             </span>
@@ -196,7 +208,7 @@ function closeAnalysis() {
                 aria-hidden="true"
               />
               <FileUp v-else :size="19" aria-hidden="true" />
-              {{ uploadState === 'uploading' ? '上傳中' : '上傳帳單' }}
+              {{ uploadState === 'uploading' ? t('upload.uploading') : t('upload.submit') }}
             </button>
 
             <p
@@ -224,8 +236,13 @@ function closeAnalysis() {
     >
       <div class="analysis-dialog__surface">
         <header class="analysis-dialog__header">
-          <h2 id="analysis-dialog-title">帳單分析</h2>
-          <button type="button" aria-label="關閉帳單分析" autofocus @click="closeAnalysis">
+          <h2 id="analysis-dialog-title">{{ t('upload.analysisTitle') }}</h2>
+          <button
+            type="button"
+            :aria-label="t('upload.closeAnalysis')"
+            autofocus
+            @click="closeAnalysis"
+          >
             <CircleX :size="22" aria-hidden="true" />
           </button>
         </header>
@@ -233,14 +250,14 @@ function closeAnalysis() {
         <div class="analysis-dialog__body">
           <!-- Markdown 已停用原始 HTML，並限制圖片與危險連結。 -->
           <div v-if="analysisMarkdown.trim()" class="analysis-markdown" v-html="analysisHtml"></div>
-          <p v-else class="analysis-empty">尚無統計數據，請先上傳帳單。</p>
+          <p v-else class="analysis-empty">{{ t('upload.analysisEmpty') }}</p>
         </div>
       </div>
     </dialog>
 
     <footer class="page-footer">
       <div class="page-footer__meta">
-        <span>信用卡推薦</span>
+        <span>{{ t('common.brand') }}</span>
         <span>© 2026 Meichu Hackathon @ Google</span>
       </div>
     </footer>
