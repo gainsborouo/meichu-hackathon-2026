@@ -9,6 +9,10 @@ services:
         required: false
     environment:
       DEBUG: "${DEBUG:-true}"
+      # The statement agent needs a vision-capable OpenAI-compatible endpoint.
+      LLM_BASE_URL: "${LLM_BASE_URL:-}"
+      LLM_API_KEY: "${LLM_API_KEY:-}"
+      LLM_MODEL: "${LLM_MODEL:-}"
     healthcheck:
       # The runtime image is python:slim, so probe with stdlib rather than curl.
       test:
