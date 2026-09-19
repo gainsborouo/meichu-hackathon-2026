@@ -380,3 +380,6 @@ tools/gotestsum.exe.hash
 !tsc/testdata/submoduleTriaged.txt
 
 .hallmark
+
+# Local Firebase Admin service-account credential
+/firebase.json

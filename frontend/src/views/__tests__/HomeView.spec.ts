@@ -1,11 +1,50 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import HomeView from '../HomeView.vue'
 
-function mountHome() {
+type MockAuthUser = {
+  displayName: string | null
+  email: string | null
+  photoURL: string | null
+}
+
+const authMocks = vi.hoisted(() => ({
+  auth: {},
+  currentUser: null as unknown,
+  googleProvider: {},
+  signInWithPopup: vi.fn<(auth: unknown, provider: unknown) => Promise<unknown>>(),
+  signOut: vi.fn<(auth: unknown) => Promise<void>>(),
+  unsubscribe: vi.fn<() => void>(),
+}))
+
+vi.mock('@/firebase', () => ({
+  auth: authMocks.auth,
+  googleProvider: authMocks.googleProvider,
+}))
+
+vi.mock('firebase/auth', () => ({
+  onAuthStateChanged: vi.fn<(auth: unknown, onUser: (user: unknown) => void) => () => void>(
+    (_auth, onUser) => {
+      onUser(authMocks.currentUser)
+      return authMocks.unsubscribe
+    },
+  ),
+  signInWithPopup: authMocks.signInWithPopup,
+  signOut: authMocks.signOut,
+}))
+
+function mountHome(user: MockAuthUser | null = null) {
+  authMocks.currentUser = user
   return mount(HomeView)
 }
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  authMocks.currentUser = null
+  authMocks.signInWithPopup.mockResolvedValue({})
+  authMocks.signOut.mockResolvedValue(undefined)
+})
 
 describe('HomeView', () => {
   it('renders the credit card search form', () => {
@@ -17,10 +56,81 @@ describe('HomeView', () => {
     expect(wrapper.get('label[for="category"]').text()).toContain('品項或類別')
     expect(wrapper.text()).not.toContain('店家、品類或用途都可以作為查詢情境。')
     expect(wrapper.get('footer').text()).toBe('© 2026 Meichu Hackathon @ Google')
-    expect(wrapper.get('button[aria-label="登入功能尚未開放"]').attributes()).toHaveProperty(
-      'disabled',
-    )
+    expect(
+      wrapper.get('button[aria-label="使用 Google 帳號登入"]').attributes('disabled'),
+    ).toBeUndefined()
+    expect(
+      wrapper
+        .get('button[aria-label="使用 Google 帳號登入"]')
+        .find('.topbar__google-icon')
+        .exists(),
+    ).toBe(true)
     expect(wrapper.get('button[type="submit"]').text()).toContain('搜尋信用卡推薦')
+  })
+
+  it('signs in with Google from the existing login button', async () => {
+    const wrapper = mountHome()
+
+    await wrapper.get('button[aria-label="使用 Google 帳號登入"]').trigger('click')
+    await flushPromises()
+
+    expect(authMocks.signInWithPopup).toHaveBeenCalledExactlyOnceWith(
+      authMocks.auth,
+      authMocks.googleProvider,
+    )
+  })
+
+  it('shows the Google profile and signs out', async () => {
+    const wrapper = mountHome({
+      displayName: '王小明',
+      email: 'user@example.com',
+      photoURL: 'https://example.com/avatar.png',
+    })
+
+    expect(wrapper.get('.topbar__identity-name').text()).toBe('王小明')
+    expect(wrapper.get<HTMLImageElement>('.topbar__avatar').attributes('src')).toBe(
+      'https://example.com/avatar.png',
+    )
+
+    await wrapper.get('.topbar__login').trigger('click')
+    await flushPromises()
+
+    expect(authMocks.signOut).toHaveBeenCalledExactlyOnceWith(authMocks.auth)
+  })
+
+  it('uses profile fallbacks when Google omits the name or avatar', () => {
+    const wrapper = mountHome({
+      displayName: null,
+      email: 'user@example.com',
+      photoURL: null,
+    })
+
+    expect(wrapper.get('.topbar__identity-name').text()).toBe('user@example.com')
+    expect(wrapper.find('img.topbar__avatar').exists()).toBe(false)
+    expect(wrapper.find('.topbar__avatar--fallback').exists()).toBe(true)
+  })
+
+  it('shows an accessible error when the login popup is blocked', async () => {
+    authMocks.signInWithPopup.mockRejectedValue({ code: 'auth/popup-blocked' })
+    const wrapper = mountHome()
+
+    await wrapper.get('button[aria-label="使用 Google 帳號登入"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.topbar__auth-error').attributes('role')).toBe('alert')
+    expect(wrapper.get('.topbar__auth-error').text()).toBe(
+      '瀏覽器阻擋登入視窗，請允許彈出式視窗後再試。',
+    )
+  })
+
+  it('does not show an error when the user closes the login popup', async () => {
+    authMocks.signInWithPopup.mockRejectedValue({ code: 'auth/popup-closed-by-user' })
+    const wrapper = mountHome()
+
+    await wrapper.get('button[aria-label="使用 Google 帳號登入"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.topbar__auth-error').exists()).toBe(false)
   })
 
   it('validates the required fields', async () => {
