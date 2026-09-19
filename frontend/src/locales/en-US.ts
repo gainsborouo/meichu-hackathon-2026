@@ -1,11 +1,11 @@
 export default {
   metadata: {
-    title: 'Credit Card Recommender',
+    title: 'SwipeRight',
     description:
       'Enter where and what you are buying to find the best credit card for the purchase.',
   },
   common: {
-    brand: 'Card Recommender',
+    brand: 'SwipeRight',
     bankUnknown: 'Issuer unavailable',
     cardArtworkAlt: '{bank} {name} card artwork',
     cardArtworkUnavailable: 'Card artwork unavailable',
@@ -17,7 +17,7 @@ export default {
     enUS: 'English',
   },
   navigation: {
-    homeLabel: 'Credit card recommender home',
+    homeLabel: 'SwipeRight home',
     mainLabel: 'Main navigation',
     uploadStatement: 'Upload Statements',
     cardManagement: 'Manage Cards',

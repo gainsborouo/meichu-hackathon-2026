@@ -95,7 +95,7 @@ describe('HomeView', () => {
     expect(wrapper.get('[role="alert"]').text()).toBe('Enter a store or location')
     expect(wrapper.get('button[type="submit"]').text()).toContain('Find the Best Card')
     expect(document.documentElement.lang).toBe('en-US')
-    expect(document.title).toBe('Credit Card Recommender')
+    expect(document.title).toBe('SwipeRight')
     expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe('en-US')
   })
 

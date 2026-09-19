@@ -37,7 +37,7 @@ describe('i18n', () => {
 
     expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe('en-US')
     expect(document.documentElement.lang).toBe('en-US')
-    expect(document.title).toBe('Credit Card Recommender')
+    expect(document.title).toBe('SwipeRight')
     expect(description.content).toContain('best credit card')
 
     description.remove()

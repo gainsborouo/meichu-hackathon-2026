@@ -14,7 +14,7 @@ test('switches to English and keeps the language across reloads and navigation',
   await page.getByLabel('語言').selectOption('en-US')
 
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Which card should you use')
-  await expect(page).toHaveTitle('Credit Card Recommender')
+  await expect(page).toHaveTitle('SwipeRight')
   await expect(page.locator('html')).toHaveAttribute('lang', 'en-US')
 
   await page.reload()

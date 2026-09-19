@@ -1,10 +1,10 @@
 export default {
   metadata: {
-    title: '信用卡推薦',
+    title: '最佳一刷',
     description: '輸入消費地點、金額與品項，查詢適合使用的信用卡。',
   },
   common: {
-    brand: '信用卡推薦',
+    brand: '最佳一刷',
     bankUnknown: '發卡銀行未提供',
     cardArtworkAlt: '{bank}{name}卡面',
     cardArtworkUnavailable: '卡面圖片無法顯示',
@@ -16,7 +16,7 @@ export default {
     enUS: 'English',
   },
   navigation: {
-    homeLabel: '信用卡推薦首頁',
+    homeLabel: '最佳一刷首頁',
     mainLabel: '主要導覽',
     uploadStatement: '上傳帳單',
     cardManagement: '卡片管理',
