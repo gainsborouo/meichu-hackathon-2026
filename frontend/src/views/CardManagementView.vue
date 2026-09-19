@@ -61,14 +61,7 @@ const filteredCards = computed(() => {
   if (!query) return catalogCards.value
 
   return catalogCards.value.filter((card) =>
-    [
-      card.bank_name,
-      card.name,
-      card.issuer_en,
-      card.variant,
-      card.network,
-      card.tier,
-    ]
+    [card.bank_name, card.name, card.issuer_en, card.variant, card.network, card.tier]
       .filter(Boolean)
       .join(' ')
       .toLocaleLowerCase('zh-TW')
@@ -214,9 +207,7 @@ onMounted(async () => {
             <article v-for="userCard in ownedCards" :key="userCard.id" class="wallet-card">
               <div class="wallet-card__media">
                 <img
-                  v-if="
-                    userCard.card.artwork_id && !failedImageIds.has(userCard.card.artwork_id)
-                  "
+                  v-if="userCard.card.artwork_id && !failedImageIds.has(userCard.card.artwork_id)"
                   :src="`/card-art/${userCard.card.artwork_id}.webp`"
                   :alt="`${userCard.card.bank_name ?? ''}${userCard.card.name}卡面`"
                   width="640"
