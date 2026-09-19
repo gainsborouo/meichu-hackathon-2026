@@ -29,13 +29,10 @@ async function uploadStatement() {
   message.value = ''
 
   try {
-    await Promise.all(
-      selectedFiles.value.map(async (file) => {
-        const formData = new FormData()
-        formData.append('file', file)
-        await api.post('/mine/e-statement', formData)
-      }),
-    )
+    const formData = new FormData()
+
+    selectedFiles.value.forEach((file) => formData.append('files', file))
+    await api.post('/me/statements', formData)
 
     uploadState.value = 'success'
     message.value = `已上傳 ${selectedFiles.value.length} 份帳單。`
@@ -88,7 +85,7 @@ async function uploadStatement() {
             </span>
             <input
               id="statement-file"
-              name="file"
+              name="files"
               type="file"
               multiple
               @change="handleFileSelection"
@@ -176,7 +173,7 @@ async function uploadStatement() {
   margin: 0;
   overflow-wrap: anywhere;
   font-family: var(--font-display);
-  font-size: var(--text-display);
+  font-size: clamp(2rem, 4vw, 3.25rem);
   font-style: normal;
   font-weight: 600;
   letter-spacing: -0.035em;

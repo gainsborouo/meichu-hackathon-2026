@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   CircleCheck,
   CreditCard,
@@ -22,22 +22,45 @@ interface CardAction {
   method: CardRequestMethod
 }
 
+interface ApiCard {
+  id: string
+  bank_name: string | null
+  name: string
+}
+
+interface UserCard {
+  id: string
+  card: ApiCard
+  created_at: string
+}
+
+interface DisplayCard extends ApiCard {
+  artwork?: CreditCardArtwork
+}
+
+interface DisplayUserCard extends Omit<UserCard, 'card'> {
+  card: DisplayCard
+}
+
 const resultLimit = 24
 const searchQuery = ref('')
-const ownedCards = ref<CreditCardArtwork[]>([])
+const catalogCards = ref<DisplayCard[]>([])
+const ownedCards = ref<DisplayUserCard[]>([])
+const isLoading = ref(true)
+const loadError = ref('')
 const pendingAction = ref<CardAction | null>(null)
 const failedAction = ref<CardAction | null>(null)
 const actionError = ref('')
 const announcement = ref('')
 const failedImageIds = ref(new Set<string>())
 
-function cardKey(card: Pick<CreditCardArtwork, 'issuer' | 'cardName'>) {
+function artworkKey(card: Pick<CreditCardArtwork, 'issuer' | 'cardName'>) {
   return `${card.issuer}\u0000${card.cardName}`
 }
 
 const seenCardKeys = new Set<string>()
-const catalogCards: readonly CreditCardArtwork[] = creditCardArtworkCatalog.filter((card) => {
-  const key = cardKey(card)
+const artworkCards = creditCardArtworkCatalog.filter((card) => {
+  const key = artworkKey(card)
 
   if (seenCardKeys.has(key)) return false
 
@@ -45,15 +68,52 @@ const catalogCards: readonly CreditCardArtwork[] = creditCardArtworkCatalog.filt
   return true
 })
 
-const ownedCardKeys = computed(() => new Set(ownedCards.value.map(cardKey)))
+function normalizeBankName(name: string | null) {
+  return (name ?? '').toLocaleLowerCase('zh-TW').replace(/商業|銀行|股份|有限公司|\s/g, '')
+}
+
+function normalizeCardName(name: string) {
+  return name
+    .toLocaleLowerCase('zh-TW')
+    .replace(/信用卡|聯名卡|簽帳金融卡|卡/g, '')
+    .replace(/[^\p{L}\p{N}]/gu, '')
+}
+
+function findArtwork(card: ApiCard) {
+  const bankName = normalizeBankName(card.bank_name)
+  const cardName = normalizeCardName(card.name)
+
+  if (!bankName || !cardName) return undefined
+
+  return artworkCards.find((artwork) => {
+    if (normalizeBankName(artwork.issuer) !== bankName) return false
+
+    const artworkName = normalizeCardName(artwork.cardName)
+    return artworkName.includes(cardName) || cardName.includes(artworkName)
+  })
+}
+
+function toDisplayCard(card: ApiCard): DisplayCard {
+  return { ...card, artwork: findArtwork(card) }
+}
+
+const ownedCardIds = computed(() => new Set(ownedCards.value.map(({ card }) => card.id)))
 
 const filteredCards = computed(() => {
   const query = searchQuery.value.trim().toLocaleLowerCase('zh-TW')
 
-  if (!query) return catalogCards
+  if (!query) return catalogCards.value
 
-  return catalogCards.filter((card) =>
-    [card.issuer, card.issuerEn, card.cardName, card.variant, card.network, card.tier]
+  return catalogCards.value.filter((card) =>
+    [
+      card.bank_name,
+      card.name,
+      card.artwork?.issuerEn,
+      card.artwork?.variant,
+      card.artwork?.network,
+      card.artwork?.tier,
+    ]
+      .filter(Boolean)
       .join(' ')
       .toLocaleLowerCase('zh-TW')
       .includes(query),
@@ -62,28 +122,28 @@ const filteredCards = computed(() => {
 
 const displayedCards = computed(() => filteredCards.value.slice(0, resultLimit))
 
-function isOwned(card: CreditCardArtwork) {
-  return ownedCardKeys.value.has(cardKey(card))
+function isOwned(card: DisplayCard) {
+  return ownedCardIds.value.has(card.id)
 }
 
-function isPending(card: CreditCardArtwork, method: CardRequestMethod) {
-  return pendingAction.value?.key === cardKey(card) && pendingAction.value.method === method
+function isPending(key: string, method: CardRequestMethod) {
+  return pendingAction.value?.key === key && pendingAction.value.method === method
 }
 
-function isFailed(card: CreditCardArtwork, method: CardRequestMethod) {
-  return failedAction.value?.key === cardKey(card) && failedAction.value.method === method
+function isFailed(key: string, method: CardRequestMethod) {
+  return failedAction.value?.key === key && failedAction.value.method === method
 }
 
-function addButtonState(card: CreditCardArtwork) {
-  if (isPending(card, 'POST')) return 'loading'
+function addButtonState(card: DisplayCard) {
+  if (isPending(card.id, 'POST')) return 'loading'
   if (isOwned(card)) return 'success'
-  if (isFailed(card, 'POST')) return 'error'
+  if (isFailed(card.id, 'POST')) return 'error'
   return 'idle'
 }
 
-function removeButtonState(card: CreditCardArtwork) {
-  if (isPending(card, 'DELETE')) return 'loading'
-  if (isFailed(card, 'DELETE')) return 'error'
+function removeButtonState(userCard: DisplayUserCard) {
+  if (isPending(userCard.id, 'DELETE')) return 'loading'
+  if (isFailed(userCard.id, 'DELETE')) return 'error'
   return 'idle'
 }
 
@@ -93,42 +153,67 @@ function markImageFailed(cardId: string) {
   failedImageIds.value = nextIds
 }
 
-async function updateOwnedCard(method: CardRequestMethod, card: CreditCardArtwork) {
-  const key = cardKey(card)
+async function addCard(card: DisplayCard) {
+  if (pendingAction.value || isOwned(card)) return
 
-  if (pendingAction.value || (method === 'POST' && isOwned(card))) return
-
-  pendingAction.value = { key, method }
+  pendingAction.value = { key: card.id, method: 'POST' }
   failedAction.value = null
   actionError.value = ''
   announcement.value = ''
 
   try {
-    const cards = [{ issuer: card.issuer, name: card.cardName }]
-
-    if (method === 'POST') {
-      await api.post('/mine/cards', cards)
-    } else {
-      await api.delete('/mine/cards', { data: cards })
-    }
-
-    if (method === 'POST') {
-      ownedCards.value = [...ownedCards.value, card]
-      announcement.value = `已將「${card.cardName}」加入卡包。`
-    } else {
-      ownedCards.value = ownedCards.value.filter((ownedCard) => cardKey(ownedCard) !== key)
-      announcement.value = `已將「${card.cardName}」移出卡包。`
-    }
+    const response = await api.post<UserCard>('/me/cards', { card_id: card.id })
+    ownedCards.value = [
+      ...ownedCards.value,
+      { ...response.data, card: toDisplayCard(response.data.card) },
+    ]
+    announcement.value = `已將「${card.name}」加入卡包。`
   } catch {
-    failedAction.value = { key, method }
-    actionError.value =
-      method === 'POST'
-        ? `無法加入「${card.cardName}」，持卡資料未變更。請稍後再試。`
-        : `無法移除「${card.cardName}」，持卡資料未變更。請稍後再試。`
+    failedAction.value = { key: card.id, method: 'POST' }
+    actionError.value = `無法加入「${card.name}」，持卡資料未變更。請稍後再試。`
   } finally {
     pendingAction.value = null
   }
 }
+
+async function removeCard(userCard: DisplayUserCard) {
+  if (pendingAction.value) return
+
+  pendingAction.value = { key: userCard.id, method: 'DELETE' }
+  failedAction.value = null
+  actionError.value = ''
+  announcement.value = ''
+
+  try {
+    await api.delete(`/me/cards/${userCard.id}`)
+    ownedCards.value = ownedCards.value.filter(({ id }) => id !== userCard.id)
+    announcement.value = `已將「${userCard.card.name}」移出卡包。`
+  } catch {
+    failedAction.value = { key: userCard.id, method: 'DELETE' }
+    actionError.value = `無法移除「${userCard.card.name}」，持卡資料未變更。請稍後再試。`
+  } finally {
+    pendingAction.value = null
+  }
+}
+
+onMounted(async () => {
+  try {
+    const [catalogResponse, ownedResponse] = await Promise.all([
+      api.get<ApiCard[]>('/cards'),
+      api.get<UserCard[]>('/me/cards'),
+    ])
+
+    catalogCards.value = catalogResponse.data.map(toDisplayCard)
+    ownedCards.value = ownedResponse.data.map((userCard) => ({
+      ...userCard,
+      card: toDisplayCard(userCard.card),
+    }))
+  } catch {
+    loadError.value = '無法讀取卡片資料，請稍後再試。'
+  } finally {
+    isLoading.value = false
+  }
+})
 </script>
 
 <template>
@@ -141,14 +226,13 @@ async function updateOwnedCard(method: CardRequestMethod, card: CreditCardArtwor
           <h1>卡片管理</h1>
           <p>加入你持有的信用卡，查詢推薦時會納入這些卡片。</p>
         </div>
-        <p class="page-intro__note">新增與移除都會先送至伺服器，確認成功後才更新本頁。</p>
       </header>
 
       <p class="visually-hidden" role="status" aria-live="polite">{{ announcement }}</p>
 
-      <p v-if="actionError" class="action-error" role="alert">
+      <p v-if="loadError || actionError" class="action-error" role="alert">
         <TriangleAlert :size="20" aria-hidden="true" />
-        <span>{{ actionError }}</span>
+        <span>{{ loadError || actionError }}</span>
       </p>
 
       <section class="wallet-section" aria-labelledby="wallet-title">
@@ -157,10 +241,17 @@ async function updateOwnedCard(method: CardRequestMethod, card: CreditCardArtwor
             <h2 id="wallet-title">我的卡包</h2>
             <p>已加入的信用卡會顯示在這裡。</p>
           </div>
-          <span class="section-heading__count">{{ ownedCards.length }} 張</span>
+          <span class="section-heading__count">{{
+            isLoading ? '—' : `${ownedCards.length} 張`
+          }}</span>
         </header>
 
-        <div v-if="ownedCards.length === 0" class="wallet-empty">
+        <div v-if="isLoading" class="wallet-loading" role="status">
+          <LoaderCircle class="button-spinner" :size="24" aria-hidden="true" />
+          <span>正在讀取持卡資料…</span>
+        </div>
+
+        <div v-else-if="!loadError && ownedCards.length === 0" class="wallet-empty">
           <WalletCards :size="32" :stroke-width="1.6" aria-hidden="true" />
           <div>
             <h3>尚未加入信用卡</h3>
@@ -168,17 +259,17 @@ async function updateOwnedCard(method: CardRequestMethod, card: CreditCardArtwor
           </div>
         </div>
 
-        <div v-else class="wallet-shell">
+        <div v-else-if="ownedCards.length > 0" class="wallet-shell">
           <div class="wallet-track">
-            <article v-for="card in ownedCards" :key="cardKey(card)" class="wallet-card">
+            <article v-for="userCard in ownedCards" :key="userCard.id" class="wallet-card">
               <div class="wallet-card__media">
                 <img
-                  v-if="!failedImageIds.has(card.id)"
-                  :src="`/card-art/${card.id}.webp`"
-                  :alt="`${card.displayName}卡面`"
+                  v-if="userCard.card.artwork && !failedImageIds.has(userCard.card.artwork.id)"
+                  :src="`/card-art/${userCard.card.artwork.id}.webp`"
+                  :alt="`${userCard.card.bank_name ?? ''}${userCard.card.name}卡面`"
                   width="640"
                   height="400"
-                  @error="markImageFailed(card.id)"
+                  @error="markImageFailed(userCard.card.artwork.id)"
                 />
                 <div v-else class="card-art-fallback">
                   <CreditCard :size="36" :stroke-width="1.5" aria-hidden="true" />
@@ -188,26 +279,26 @@ async function updateOwnedCard(method: CardRequestMethod, card: CreditCardArtwor
 
               <div class="wallet-card__meta">
                 <div>
-                  <h3>{{ card.cardName }}</h3>
-                  <p>{{ card.issuer }}</p>
+                  <h3>{{ userCard.card.name }}</h3>
+                  <p>{{ userCard.card.bank_name ?? '發卡銀行未提供' }}</p>
                 </div>
                 <button
                   class="wallet-remove"
                   type="button"
-                  :data-state="removeButtonState(card)"
+                  :data-state="removeButtonState(userCard)"
                   :disabled="Boolean(pendingAction)"
-                  :aria-busy="isPending(card, 'DELETE')"
-                  :aria-label="`移除${card.issuer}${card.cardName}`"
-                  @click="updateOwnedCard('DELETE', card)"
+                  :aria-busy="isPending(userCard.id, 'DELETE')"
+                  :aria-label="`移除${userCard.card.bank_name ?? ''}${userCard.card.name}`"
+                  @click="removeCard(userCard)"
                 >
                   <LoaderCircle
-                    v-if="isPending(card, 'DELETE')"
+                    v-if="isPending(userCard.id, 'DELETE')"
                     class="button-spinner"
                     :size="17"
                     aria-hidden="true"
                   />
                   <Trash2 v-else :size="17" aria-hidden="true" />
-                  {{ isPending(card, 'DELETE') ? '移除中…' : '移除' }}
+                  {{ isPending(userCard.id, 'DELETE') ? '移除中…' : '移除' }}
                 </button>
               </div>
             </article>
@@ -239,14 +330,24 @@ async function updateOwnedCard(method: CardRequestMethod, card: CreditCardArtwor
           <p id="card-search-help">可輸入銀行、卡片名稱、卡別或發卡組織。</p>
         </div>
 
-        <div class="catalogue-summary" role="status" aria-live="polite">
+        <div
+          v-if="!isLoading && !loadError"
+          class="catalogue-summary"
+          role="status"
+          aria-live="polite"
+        >
           <span>找到 {{ filteredCards.length }} 張信用卡</span>
           <span v-if="filteredCards.length > resultLimit">
             顯示前 {{ resultLimit }} 張，輸入關鍵字可縮小範圍。
           </span>
         </div>
 
-        <div v-if="displayedCards.length === 0" class="catalogue-empty">
+        <div v-if="isLoading" class="catalogue-loading" role="status">
+          <LoaderCircle class="button-spinner" :size="24" aria-hidden="true" />
+          <span>正在讀取信用卡清單…</span>
+        </div>
+
+        <div v-else-if="!loadError && displayedCards.length === 0" class="catalogue-empty">
           <Search :size="28" :stroke-width="1.6" aria-hidden="true" />
           <div>
             <h3>找不到符合條件的信用卡</h3>
@@ -254,17 +355,17 @@ async function updateOwnedCard(method: CardRequestMethod, card: CreditCardArtwor
           </div>
         </div>
 
-        <div v-else class="catalogue-grid">
-          <article v-for="card in displayedCards" :key="cardKey(card)" class="catalogue-card">
+        <div v-else-if="displayedCards.length > 0" class="catalogue-grid">
+          <article v-for="card in displayedCards" :key="card.id" class="catalogue-card">
             <div class="catalogue-card__image">
               <img
-                v-if="!failedImageIds.has(card.id)"
-                :src="`/card-art/${card.id}.webp`"
-                :alt="`${card.displayName}卡面`"
+                v-if="card.artwork && !failedImageIds.has(card.artwork.id)"
+                :src="`/card-art/${card.artwork.id}.webp`"
+                :alt="`${card.bank_name ?? ''}${card.name}卡面`"
                 width="640"
                 height="400"
                 loading="lazy"
-                @error="markImageFailed(card.id)"
+                @error="markImageFailed(card.artwork.id)"
               />
               <div v-else class="card-art-fallback">
                 <CreditCard :size="36" :stroke-width="1.5" aria-hidden="true" />
@@ -274,8 +375,8 @@ async function updateOwnedCard(method: CardRequestMethod, card: CreditCardArtwor
 
             <div class="catalogue-card__meta">
               <div>
-                <h3>{{ card.cardName }}</h3>
-                <p>{{ card.issuer }}</p>
+                <h3>{{ card.name }}</h3>
+                <p>{{ card.bank_name ?? '發卡銀行未提供' }}</p>
               </div>
             </div>
 
@@ -284,23 +385,23 @@ async function updateOwnedCard(method: CardRequestMethod, card: CreditCardArtwor
               type="button"
               :data-state="addButtonState(card)"
               :disabled="Boolean(pendingAction) || isOwned(card)"
-              :aria-busy="isPending(card, 'POST')"
+              :aria-busy="isPending(card.id, 'POST')"
               :aria-label="
                 isOwned(card)
-                  ? `已加入${card.issuer}${card.cardName}`
-                  : `加入${card.issuer}${card.cardName}`
+                  ? `已加入${card.bank_name ?? ''}${card.name}`
+                  : `加入${card.bank_name ?? ''}${card.name}`
               "
-              @click="updateOwnedCard('POST', card)"
+              @click="addCard(card)"
             >
               <LoaderCircle
-                v-if="isPending(card, 'POST')"
+                v-if="isPending(card.id, 'POST')"
                 class="button-spinner"
                 :size="18"
                 aria-hidden="true"
               />
               <CircleCheck v-else-if="isOwned(card)" :size="18" aria-hidden="true" />
               <Plus v-else :size="18" aria-hidden="true" />
-              {{ isPending(card, 'POST') ? '加入中…' : isOwned(card) ? '已加入' : '加入卡片' }}
+              {{ isPending(card.id, 'POST') ? '加入中…' : isOwned(card) ? '已加入' : '加入卡片' }}
             </button>
           </article>
         </div>
@@ -308,7 +409,6 @@ async function updateOwnedCard(method: CardRequestMethod, card: CreditCardArtwor
     </main>
 
     <footer class="card-footer">
-      <p class="card-footer__statement">持卡資料會成為信用卡推薦的查詢條件。</p>
       <div class="card-footer__meta">
         <span>信用卡推薦</span>
         <span>© 2026 Meichu Hackathon @ Google</span>
@@ -366,8 +466,7 @@ async function updateOwnedCard(method: CardRequestMethod, card: CreditCardArtwor
 .catalogue-card p,
 .catalogue-summary,
 .search-control p,
-.action-error,
-.card-footer p {
+.action-error {
   margin: 0;
 }
 
@@ -386,14 +485,6 @@ async function updateOwnedCard(method: CardRequestMethod, card: CreditCardArtwor
   max-width: 54ch;
   margin-block-start: var(--space-sm);
   color: var(--color-ink-2);
-  line-height: 1.6;
-}
-
-.page-intro__note {
-  max-width: 48ch;
-  align-self: end;
-  color: var(--color-muted);
-  font-size: var(--text-sm);
   line-height: 1.6;
 }
 
@@ -455,7 +546,9 @@ async function updateOwnedCard(method: CardRequestMethod, card: CreditCardArtwor
 }
 
 .wallet-empty,
-.catalogue-empty {
+.catalogue-empty,
+.wallet-loading,
+.catalogue-loading {
   display: flex;
   min-height: 9rem;
   align-items: center;
@@ -755,18 +848,6 @@ async function updateOwnedCard(method: CardRequestMethod, card: CreditCardArtwor
   display: grid;
   gap: var(--space-xl);
   padding-block: var(--space-2xl) var(--space-lg);
-}
-
-.card-footer__statement {
-  min-width: 0;
-  max-width: 28ch;
-  overflow-wrap: anywhere;
-  font-family: var(--font-display);
-  font-size: clamp(1.75rem, 5vw, 3.25rem);
-  font-style: normal;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  line-height: 1.05;
 }
 
 .card-footer__meta {

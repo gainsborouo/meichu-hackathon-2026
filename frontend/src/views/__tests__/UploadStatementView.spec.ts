@@ -33,7 +33,7 @@ describe('UploadStatementView', () => {
     expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
   })
 
-  it('uploads every selected file as multipart form data', async () => {
+  it('uploads all selected files in one multipart request', async () => {
     apiMocks.post.mockResolvedValue({})
     const wrapper = mountUploadStatement()
     const input = wrapper.get<HTMLInputElement>('#statement-file')
@@ -51,16 +51,11 @@ describe('UploadStatementView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('first.pdf、second.pdf')
-    expect(apiMocks.post).toHaveBeenCalledTimes(2)
-    expect(
-      apiMocks.post.mock.calls.map(([url, body]) => ({
-        url,
-        file: (body as FormData).get('file'),
-      })),
-    ).toEqual([
-      { url: '/mine/e-statement', file: files[0] },
-      { url: '/mine/e-statement', file: files[1] },
-    ])
+    expect(apiMocks.post).toHaveBeenCalledTimes(1)
+    const [url, body] = apiMocks.post.mock.calls[0]!
+    expect(url).toBe('/me/statements')
+    expect((body as FormData).getAll('files')).toEqual(files)
+    expect((body as FormData).has('file')).toBe(false)
     expect(wrapper.get('[role="status"]').text()).toBe('已上傳 2 份帳單。')
   })
 
