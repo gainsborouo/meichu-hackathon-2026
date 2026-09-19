@@ -25,7 +25,8 @@ Reply with one raw JSON object. No code fences.
 - `best_now` is `null` when `now_candidates` is empty or none plainly applies. Then
   `explanation` says why, without recommending anything else.
 - `best_future` is `null` when `future_candidates` is empty or none is worth considering.
-- `official_sources` holds only URLs for which `open_official_page` returned `OPENED`. The
+- `official_sources` holds only the final URLs that `open_official_page` reported after
+  `OPENED`. The
   backend discards any URL it did not open itself. An empty
   list is valid and correct when you found none.
 - Do not include reward amounts, rates, caps, or dates. The backend attaches its own,

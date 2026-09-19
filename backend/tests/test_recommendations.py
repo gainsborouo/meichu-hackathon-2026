@@ -672,3 +672,125 @@ async def test_only_opened_official_pages_verify_and_stamp(session, world):
     raw["opened_urls"] = []
     assert service.assemble(p, raw).best_now.verification_status == "unverified"
     assert service.verified_sale_ids(p, raw) == []
+
+
+# --- final-URL-only evidence ----------------------------------------------
+
+INITIAL = "https://www.esunbank.com/old-promo"
+FINAL = "https://www.esunbank.com/zh-tw/promo/new"
+PAGE = (
+    "<html><body>" + "<p>指定網購享 3% 回饋，活動期間內每月上限 500 點。</p>" * 5 + "</body></html>"
+)
+HTML_HEADERS = {"content-type": "text/html; charset=utf-8"}
+
+
+def _open_with(monkeypatch, responses):
+    """Run the real open_official_page tool against canned responses (no network)."""
+    from app.services import official_pages
+    from app.services.recommendation_agent import _make_open_official_page
+
+    def fake_fetch(url):
+        return official_pages.fetch_page(
+            url, get=lambda u: responses[u], is_public=lambda host: True
+        )
+
+    monkeypatch.setattr("app.services.recommendation_agent.fetch_page", fake_fetch)
+    opened: set[str] = set()
+    return _make_open_official_page(opened), opened
+
+
+def _pick_citing(url):
+    return {
+        "best_now": {
+            "candidate_id": "free-uni#0",
+            "reason": "r",
+            "official_sources": [{"title": "官方", "url": url}],
+        }
+    }
+
+
+async def test_redirect_to_a_readable_page_records_only_the_final_url(session, world, monkeypatch):
+    tool, opened = _open_with(
+        monkeypatch,
+        {
+            INITIAL: (302, {"location": FINAL}, b""),
+            FINAL: (200, HTML_HEADERS, PAGE.encode()),
+        },
+    )
+    out = tool(INITIAL)
+    assert out.startswith(f"OPENED {FINAL}")
+    assert opened == {FINAL}  # not INITIAL, and no intermediate hop
+
+    p = await pre(session, world)
+    cited_initial = {**_pick_citing(INITIAL), "opened_urls": sorted(opened)}
+    assert service.assemble(p, cited_initial).best_now.verification_status == "unverified"
+    assert service.verified_sale_ids(p, cited_initial) == []
+
+    cited_final = {**_pick_citing(FINAL), "opened_urls": sorted(opened)}
+    assert service.assemble(p, cited_final).best_now.verification_status == "verified"
+    assert service.verified_sale_ids(p, cited_final) == ["free-uni"]
+
+
+async def test_multi_hop_redirect_records_neither_start_nor_middle(monkeypatch):
+    middle = "https://www.esunbank.com/hop"
+    tool, opened = _open_with(
+        monkeypatch,
+        {
+            INITIAL: (301, {"location": middle}, b""),
+            middle: (302, {"location": FINAL}, b""),
+            FINAL: (200, HTML_HEADERS, PAGE.encode()),
+        },
+    )
+    tool(INITIAL)
+    assert opened == {FINAL}
+
+
+async def test_redirect_ending_in_404_records_nothing_and_stamps_nothing(
+    session, world, monkeypatch
+):
+    tool, opened = _open_with(
+        monkeypatch,
+        {
+            INITIAL: (302, {"location": FINAL}, b""),
+            FINAL: (404, HTML_HEADERS, b""),
+        },
+    )
+    assert tool(INITIAL) == "NOT OPENED: HTTP 404"
+    assert opened == set()
+
+    p = await pre(session, world)
+    for cited in (INITIAL, FINAL):
+        raw = {**_pick_citing(cited), "opened_urls": sorted(opened)}
+        assert service.assemble(p, raw).best_now.verification_status == "unverified"
+        assert service.verified_sale_ids(p, raw) == []
+    await service.mark_verified(session, service.verified_sale_ids(p, raw))
+    await session.commit()
+    stamped = (
+        await session.scalars(select(Sale).where(Sale.official_verified_at.is_not(None)))
+    ).all()
+    assert stamped == []
+
+
+@pytest.mark.parametrize(
+    "final_response",
+    [
+        (200, {"content-type": "application/pdf"}, b"%PDF-1.4"),
+        (200, HTML_HEADERS, b"<html><body>too short</body></html>"),
+        (500, HTML_HEADERS, b""),
+    ],
+)
+async def test_redirect_to_unreadable_final_page_records_nothing(monkeypatch, final_response):
+    tool, opened = _open_with(
+        monkeypatch,
+        {INITIAL: (302, {"location": FINAL}, b""), FINAL: final_response},
+    )
+    assert tool(INITIAL).startswith("NOT OPENED")
+    assert opened == set()
+
+
+async def test_redirect_leaving_the_bank_records_nothing(monkeypatch):
+    tool, opened = _open_with(
+        monkeypatch, {INITIAL: (302, {"location": "https://evil.example/x"}, b"")}
+    )
+    assert tool(INITIAL).startswith("NOT OPENED")
+    assert opened == set()

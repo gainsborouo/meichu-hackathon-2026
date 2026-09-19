@@ -179,7 +179,8 @@ def _make_open_official_page(opened: set[str]):
         """Open an official bank page and return its text, to confirm a campaign.
 
         Only https pages on a supported bank's own domain can be opened (redirects
-        included). Cite a URL as an official source only after this returns OPENED.
+        included). Cite as an official source only the final URL that this returns
+        after OPENED; a URL that redirected, or that returned NOT OPENED, is not evidence.
 
         Args:
             url: The bank page URL, e.g. one found by web_search or a candidate's
@@ -188,10 +189,13 @@ def _make_open_official_page(opened: set[str]):
         result = fetch_page(url)
         if not result.ok:
             return f"NOT OPENED: {result.error}"
-        opened.add(normalize_url(url))
+        # Evidence is the FINAL url only: the page the backend actually read. The URL that
+        # was asked for, and any redirect hop in between, prove nothing about that page.
         opened.add(normalize_url(result.url))
         return (
-            f"OPENED {result.url}\nTitle: {result.title}\n\n{result.text[:MAX_PAGE_CHARS_TO_MODEL]}"
+            f"OPENED {result.url}\n"
+            "Cite this final URL (not the one you asked for) as the official source.\n"
+            f"Title: {result.title}\n\n{result.text[:MAX_PAGE_CHARS_TO_MODEL]}"
         )
 
     return open_official_page

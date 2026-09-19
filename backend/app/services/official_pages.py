@@ -35,6 +35,13 @@ Resolver = Callable[[str], bool]
 
 @dataclass(frozen=True)
 class PageResult:
+    """Outcome of fetch_page.
+
+    On success (`ok=True`) `url` is the FINAL url after redirects and `text` is what the
+    backend read there. On failure `url` is only where it stopped and must never be
+    treated as evidence of anything.
+    """
+
     ok: bool
     url: str
     status: int | None = None

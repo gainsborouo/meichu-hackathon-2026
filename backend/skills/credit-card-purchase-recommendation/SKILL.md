@@ -49,7 +49,8 @@ The backend does **not** rank. Candidate order carries no meaning.
    waiting through `best_future`; never invent a start date.
 6. **Verified means the backend opened the page.** Follow `official-source-policy.md`.
    Find an official URL with `web_search`, then open it with `open_official_page`. List in
-   `official_sources` only URLs for which that tool returned `OPENED`. A search hit, or a
+   `official_sources` only the final URL that tool reports after `OPENED` (not the URL you
+   asked for, if it redirected). A search hit, or a
    URL you wrote from memory, is not verification. If you opened none, return an empty
    list; the backend marks the pick unverified. Never claim verification you did not
    perform.

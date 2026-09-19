@@ -10,6 +10,11 @@ https URL on a supported bank domain (redirects included; a redirect off the all
 fails), for a public host, with a 2xx text/HTML response that has readable text. It
 returns `OPENED <final url>` plus the page text, or `NOT OPENED: <reason>`.
 
+Only the **final** URL counts. If the page you asked for redirected, cite the final URL
+shown after `OPENED`; the original URL and any hop in between are not verified. If the
+redirect chain ends in an error, an unreadable page or a non-official domain, nothing is
+verified, including the URL you started from.
+
 ## Accepted
 
 The hostname equals, or is a subdomain of, a domain the backend lists for that bank
