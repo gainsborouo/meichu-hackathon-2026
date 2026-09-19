@@ -3,10 +3,16 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Card, UserCard
+from app.models import Card, Sale, UserCard
+from app.services.card_catalog import ALIAS_TO_ARTWORK_ID
 
 
 async def get_or_create_card(session: AsyncSession, *, bank_name: str | None, name: str) -> Card:
+    artwork_id = ALIAS_TO_ARTWORK_ID.get((bank_name, name))
+    if artwork_id is not None:
+        card = await session.scalar(select(Card).where(Card.artwork_id == artwork_id))
+        if card is not None:
+            return card
     card = await session.scalar(select(Card).where(Card.bank_name == bank_name, Card.name == name))
     if card is None:
         card = Card(bank_name=bank_name, name=name)
@@ -17,6 +23,11 @@ async def get_or_create_card(session: AsyncSession, *, bank_name: str | None, na
 
 async def list_cards(session: AsyncSession) -> list[Card]:
     return list(await session.scalars(select(Card).order_by(Card.bank_name, Card.name)))
+
+
+async def list_cards_with_sales(session: AsyncSession) -> list[Card]:
+    statement = select(Card).join(Sale, Sale.card_id == Card.id).distinct()
+    return list(await session.scalars(statement.order_by(Card.bank_name, Card.name)))
 
 
 async def list_user_cards(session: AsyncSession, user_id: uuid.UUID) -> list[UserCard]:

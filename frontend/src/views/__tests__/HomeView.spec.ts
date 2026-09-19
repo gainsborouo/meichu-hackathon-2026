@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { flushPromises, mount } from '@vue/test-utils'
+import type { User } from 'firebase/auth'
+import { createPinia } from 'pinia'
+import { useAuthStore } from '../../stores/authStore'
 import HomeView from '../HomeView.vue'
 
 type MockAuthUser = {
@@ -11,11 +14,13 @@ type MockAuthUser = {
 
 const authMocks = vi.hoisted(() => ({
   auth: {},
-  currentUser: null as unknown,
   googleProvider: {},
   signInWithPopup: vi.fn<(auth: unknown, provider: unknown) => Promise<unknown>>(),
   signOut: vi.fn<(auth: unknown) => Promise<void>>(),
-  unsubscribe: vi.fn<() => void>(),
+}))
+
+const routerMocks = vi.hoisted(() => ({
+  push: vi.fn<(location: unknown) => Promise<void>>(),
 }))
 
 vi.mock('@/firebase', () => ({
@@ -24,26 +29,32 @@ vi.mock('@/firebase', () => ({
 }))
 
 vi.mock('firebase/auth', () => ({
-  onAuthStateChanged: vi.fn<(auth: unknown, onUser: (user: unknown) => void) => () => void>(
-    (_auth, onUser) => {
-      onUser(authMocks.currentUser)
-      return authMocks.unsubscribe
-    },
-  ),
   signInWithPopup: authMocks.signInWithPopup,
   signOut: authMocks.signOut,
 }))
 
+vi.mock('vue-router', () => ({
+  useRouter: () => ({ push: routerMocks.push }),
+}))
+
 function mountHome(user: MockAuthUser | null = null) {
-  authMocks.currentUser = user
-  return mount(HomeView)
+  const pinia = createPinia()
+  const authStore = useAuthStore(pinia)
+  authStore.user = user as User | null
+  authStore.ready = true
+
+  return mount(HomeView, {
+    global: {
+      plugins: [pinia],
+    },
+  })
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
-  authMocks.currentUser = null
   authMocks.signInWithPopup.mockResolvedValue({})
   authMocks.signOut.mockResolvedValue(undefined)
+  routerMocks.push.mockResolvedValue(undefined)
 })
 
 describe('HomeView', () => {
@@ -147,6 +158,7 @@ describe('HomeView', () => {
     expect(wrapper.get('#location').attributes('aria-invalid')).toBe('true')
     expect(wrapper.get('#amount').attributes('aria-invalid')).toBe('true')
     expect(wrapper.get('#category').attributes('aria-invalid')).toBe('true')
+    expect(routerMocks.push).not.toHaveBeenCalled()
   })
 
   it('formats the amount and strips non-numeric characters', async () => {
@@ -187,7 +199,7 @@ describe('HomeView', () => {
     expect(categoryInput.element.value).toBe('')
   })
 
-  it('keeps valid values after submission without showing errors', async () => {
+  it('navigates to recommendations with valid search values', async () => {
     const wrapper = mountHome()
     const locationInput = wrapper.get<HTMLInputElement>('#location')
     const amountInput = wrapper.get<HTMLInputElement>('#amount')
@@ -202,5 +214,13 @@ describe('HomeView', () => {
     expect(locationInput.element.value).toBe('線上平台')
     expect(amountInput.element.value).toBe('10,000')
     expect(categoryInput.element.value).toBe('影音娛樂')
+    expect(routerMocks.push).toHaveBeenCalledExactlyOnceWith({
+      name: 'recommendations',
+      query: {
+        platform: '線上平台',
+        price: '10000',
+        category: '影音娛樂',
+      },
+    })
   })
 })

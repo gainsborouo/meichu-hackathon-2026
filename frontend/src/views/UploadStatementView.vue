@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { CircleCheck, FileText, FileUp, LoaderCircle, TriangleAlert } from '@lucide/vue'
 import SiteHeader from '../components/SiteHeader.vue'
+import { api } from '../services/api'
 
 type UploadState = 'idle' | 'uploading' | 'success' | 'error'
 
@@ -28,18 +29,10 @@ async function uploadStatement() {
   message.value = ''
 
   try {
-    await Promise.all(
-      selectedFiles.value.map(async (file) => {
-        const formData = new FormData()
-        formData.append('file', file)
-        const response = await fetch('/api/v1/mine/e-statement', {
-          method: 'POST',
-          body: formData,
-        })
+    const formData = new FormData()
 
-        if (!response.ok) throw new Error('Upload failed')
-      }),
-    )
+    selectedFiles.value.forEach((file) => formData.append('files', file))
+    await api.post('/me/statements', formData)
 
     uploadState.value = 'success'
     message.value = `已上傳 ${selectedFiles.value.length} 份帳單。`
@@ -55,10 +48,12 @@ async function uploadStatement() {
     <SiteHeader current="upload-statement" />
 
     <main class="upload-workspace">
-      <section class="upload-intro" aria-labelledby="upload-title">
-        <h1 id="upload-title">上傳帳單</h1>
-        <p>選擇電子帳單檔案，送出後交由系統解析。</p>
-      </section>
+      <header class="upload-intro">
+        <div>
+          <h1>上傳帳單</h1>
+          <p>選擇電子帳單檔案，送出後交由系統解析。</p>
+        </div>
+      </header>
 
       <form class="upload-panel" :data-state="uploadState" @submit.prevent="uploadStatement">
         <header class="upload-panel__header">
@@ -92,7 +87,7 @@ async function uploadStatement() {
             </span>
             <input
               id="statement-file"
-              name="file"
+              name="files"
               type="file"
               multiple
               @change="handleFileSelection"
@@ -145,34 +140,35 @@ async function uploadStatement() {
 <style scoped>
 /* Hallmark · pre-emit critique: P4 H4 E4 S5 R5 V4
  * Hallmark · genre: modern-minimal · macrostructure: Component Playground · theme: Cobalt
- * tone: 實用、柔和 · anchor hue: cobalt 256 · nav: N9 · footer: Ft2
+ * tone: 實用、柔和 · anchor hue: cobalt 256 · nav: N9 · footer: Ft5
  * contrast: pass (40–41) · slop: pass (42–45) · honest: pass (46)
  * chrome: pass (47) · tokens: pass (48) · responsive: pass (49)
  * icons: pass (30) · mobile: pass (34, 49, 50–57)
  * states: default · hover · focus · active · disabled · loading · error · success
  */
 .upload-page {
-  display: flex;
-  min-height: 100svh;
-  flex-direction: column;
+  min-height: 100dvh;
   background: var(--color-paper);
   color: var(--color-ink);
 }
 
+.upload-workspace,
+.page-footer {
+  width: min(100% - (var(--space-lg) * 2), var(--layout-max));
+  margin-inline: auto;
+}
+
 .upload-workspace {
   display: grid;
-  width: min(100% - (var(--space-lg) * 2), 46rem);
-  flex: 1;
-  margin-inline: auto;
-  align-content: start;
-  gap: var(--space-xl);
-  padding-block: var(--space-2xl) var(--space-3xl);
+  gap: var(--space-2xl);
+  padding-block: var(--space-xl) var(--space-3xl);
 }
 
 .upload-intro {
   display: grid;
-  min-width: 0;
-  gap: var(--space-md);
+  gap: var(--space-lg);
+  border-bottom: var(--rule-hairline) solid var(--color-rule);
+  padding-block-end: var(--space-xl);
 }
 
 .upload-intro h1 {
@@ -180,18 +176,18 @@ async function uploadStatement() {
   margin: 0;
   overflow-wrap: anywhere;
   font-family: var(--font-display);
-  font-size: var(--text-display);
+  font-size: clamp(2rem, 4vw, 3.25rem);
   font-style: normal;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: -0.035em;
-  line-height: 1.06;
+  line-height: 1.05;
 }
 
-.upload-intro p {
-  max-width: 46ch;
+.upload-intro > div > p {
+  max-width: 54ch;
   margin: 0;
+  margin-block-start: var(--space-sm);
   color: var(--color-ink-2);
-  font-size: var(--text-md);
   line-height: 1.6;
 }
 
@@ -388,21 +384,18 @@ async function uploadStatement() {
 
 .page-footer {
   display: grid;
-  width: min(100% - (var(--space-lg) * 2), 56rem);
-  margin-inline: auto;
-  gap: var(--space-lg);
-  padding-block: var(--space-xl) var(--space-lg);
-  color: var(--color-muted);
-  line-height: 1.5;
+  gap: var(--space-xl);
+  padding-block: var(--space-2xl) var(--space-lg);
 }
 
 .page-footer__meta {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-md);
+  flex-direction: column;
+  gap: var(--space-xs);
   border-top: var(--rule-hairline) solid var(--color-rule);
   padding-block-start: var(--space-sm);
+  color: var(--color-muted);
   font-size: var(--text-xs);
 }
 
@@ -419,7 +412,18 @@ async function uploadStatement() {
 @media (min-width: 40rem) {
   .upload-workspace,
   .page-footer {
-    width: min(100% - (var(--space-xl) * 2), 46rem);
+    width: min(100% - (var(--space-xl) * 2), var(--layout-max));
+  }
+
+  .page-footer__meta {
+    flex-direction: row;
+    justify-content: space-between;
+  }
+}
+
+@media (min-width: 60rem) {
+  .upload-intro {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.6fr);
   }
 }
 

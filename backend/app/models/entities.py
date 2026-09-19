@@ -47,6 +47,14 @@ class Card(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     bank_name: Mapped[str | None] = mapped_column(sa.Text)
     name: Mapped[str] = mapped_column(sa.Text)
+    artwork_id: Mapped[str | None] = mapped_column(sa.Text, unique=True)
+    display_name: Mapped[str | None] = mapped_column(sa.Text)
+    issuer_en: Mapped[str | None] = mapped_column(sa.Text)
+    variant: Mapped[str | None] = mapped_column(sa.Text)
+    network: Mapped[str | None] = mapped_column(sa.Text)
+    tier: Mapped[str | None] = mapped_column(sa.Text)
+    official_image_url: Mapped[str | None] = mapped_column(sa.Text)
+    image_is_composite: Mapped[bool | None] = mapped_column(sa.Boolean)
     created_at: Mapped[datetime] = _ts()
 
 

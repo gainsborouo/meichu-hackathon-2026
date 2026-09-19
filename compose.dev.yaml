@@ -12,6 +12,7 @@ services:
       DATABASE_URL: "${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-app}}"
     volumes:
       - ./backend/app:/app/app
+      - ./backend/alembic:/app/alembic:ro
     depends_on:
       postgres:
         condition: service_healthy
