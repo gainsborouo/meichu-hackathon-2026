@@ -1,0 +1,15 @@
+{
+  "name": "meichu-llm-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Private OpenAI-compatible LLM gateway for the hackathon team",
+  "scripts": {
+    "start": "copilot-api start --host 0.0.0.0 --port 4141",
+    "auth:login": "copilot-api auth login --provider copilot",
+    "keys:add": "copilot-api auth keys --add",
+    "keys:list": "copilot-api auth keys --list"
+  },
+  "dependencies": {
+    "@jeffreycao/copilot-api": "2.5.3"
+  }
+}

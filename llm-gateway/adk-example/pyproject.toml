@@ -1,0 +1,20 @@
+[project]
+name = "adk-example"
+version = "0.1.0"
+description = "Minimal Google ADK example using an OpenAI-compatible LLM endpoint"
+readme = "README.md"
+authors = [
+    { name = "userwei", email = "70355885+gainsborouo@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "google-adk[extensions]",
+    "python-dotenv",
+]
+
+[project.scripts]
+adk-example = "adk_example:main"
+
+[build-system]
+requires = ["uv_build>=0.12.17,<0.13.0"]
+build-backend = "uv_build"

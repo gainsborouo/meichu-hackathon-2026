@@ -1,0 +1,14 @@
+services:
+  copilot-api:
+    build:
+      context: .
+    restart: unless-stopped
+    ports:
+      # Docker only exposes the API to this machine. Nginx will proxy it later.
+      - "127.0.0.1:4141:4141"
+    volumes:
+      # Holds the Copilot login and the gateway API keys; never commit this data.
+      - copilot-api-data:/root/.local/share/copilot-api
+
+volumes:
+  copilot-api-data:
