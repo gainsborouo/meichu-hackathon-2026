@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Card
+from app.services.card_identity import apply_identities, load_identities
 
 CATALOG_FIELDS = (
     "artwork_id",
@@ -102,14 +103,15 @@ def load_card_catalog(path: Path = DEFAULT_CARD_CATALOG_PATH) -> list[CardCatalo
     return rows
 
 
-async def import_card_catalog(
-    session: AsyncSession, rows: list[CardCatalogRow]
-) -> dict[str, int]:
+async def import_card_catalog(session: AsyncSession, rows: list[CardCatalogRow]) -> dict[str, int]:
+    identities = {i.artwork_id: i for i in load_identities()}
+    missing = [row.artwork_id for row in rows if row.artwork_id not in identities]
+    if missing:
+        raise ValueError(f"card identity data has no catalog_key for: {', '.join(missing)}")
+
     created = updated = 0
     for row in rows:
-        artwork_match = await session.scalar(
-            select(Card).where(Card.artwork_id == row.artwork_id)
-        )
+        artwork_match = await session.scalar(select(Card).where(Card.artwork_id == row.artwork_id))
         name_match = await session.scalar(
             select(Card).where(Card.bank_name == row.bank_name, Card.name == row.name)
         )
@@ -150,4 +152,5 @@ async def import_card_catalog(
         card.image_is_composite = row.image_is_composite
 
     await session.flush()
+    await apply_identities(session, [identities[row.artwork_id] for row in rows])
     return {"created": created, "updated": updated, "total": len(rows)}

@@ -15,12 +15,13 @@ against those opened pages before it can reach the output file.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import logging
 import os
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -227,13 +228,25 @@ class OpenedPage:
 
 
 def gather_official_pages(
-    bank: str, card: str, *, year: int, search: Search, fetch: Fetch = fetch_page
+    bank: str,
+    card: str,
+    *,
+    year: int,
+    search: Search,
+    fetch: Fetch = fetch_page,
+    cancelled: Callable[[], bool] | None = None,
 ) -> list[OpenedPage]:
     """Open official pages for the card. Only successfully opened, readable pages count,
-    and each is identified by its FINAL url."""
+    and each is identified by its FINAL url.
+
+    `cancelled` is polled between the blocking calls. A thread cannot be killed, so when a
+    caller gives up (a timeout) it sets this and the work stops at the next call boundary
+    instead of running on for minutes."""
     aliases = card_aliases(card)
     candidates: list[str] = []
     for query in build_queries(bank, card, year):
+        if cancelled is not None and cancelled():
+            return []
         for href in search(query):
             if is_official_url(bank, href) and normalize_url(href) not in {
                 normalize_url(c) for c in candidates
@@ -242,6 +255,8 @@ def gather_official_pages(
 
     pages: dict[str, OpenedPage] = {}
     for href in candidates[:MAX_URLS_TRIED_PER_CARD]:
+        if cancelled is not None and cancelled():
+            return []
         result = fetch(href)
         if not result.ok or not is_official_url(bank, result.url):
             logger.info("not opened (%s): %s", result.error or "unofficial final URL", href)
@@ -253,13 +268,54 @@ def gather_official_pages(
     return ordered[:MAX_PAGES_PER_CARD]
 
 
+SEARCH_RESULTS_PER_QUERY = 8
+
+
+async def crawler_targets(session: Any) -> list[CrawlTarget]:
+    """Every crawler-enabled catalog card, from the database (ordered by catalog_key)."""
+    from sqlalchemy import select
+
+    from app.models import Card
+
+    rows = await session.execute(
+        select(Card.catalog_key, Card.search_bank_name, Card.search_card_name)
+        .where(
+            Card.crawler_enabled.is_(True),
+            Card.search_bank_name.is_not(None),
+            Card.search_card_name.is_not(None),
+        )
+        .order_by(Card.catalog_key)
+    )
+    return [CrawlTarget(key, bank, card) for key, bank, card in rows.all()]
+
+
+def ddgs_search(query: str) -> list[str]:
+    """Default search seam. Only backend-built queries ever reach it."""
+    from ddgs import DDGS
+
+    with DDGS() as client:
+        results = client.text(query, max_results=SEARCH_RESULTS_PER_QUERY)
+    return [r["href"] for r in results if isinstance(r.get("href"), str)]
+
+
 # --- validation of extracted items -----------------------------------------
+
+
+@dataclass(frozen=True)
+class CrawlTarget:
+    """One catalog card to look up. `bank` / `card` are the wording to SEARCH and to match
+    official pages with; identity is only ever `card_key`."""
+
+    card_key: str
+    bank: str
+    card: str
 
 
 @dataclass
 class CardResult:
     bank: str
     card: str
+    card_key: str = ""
     base_benefits: list[dict[str, Any]] = field(default_factory=list)
     campaigns: list[dict[str, Any]] = field(default_factory=list)
     dropped: list[str] = field(default_factory=list)
@@ -270,8 +326,8 @@ def _text(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
-def _stable_id(kind: str, bank: str, card: str, title: str, start: str | None) -> str:
-    digest = hashlib.sha1(f"{kind}|{bank}|{card}|{title}|{start or ''}".encode()).hexdigest()[:10]
+def _stable_id(kind: str, card_key: str, title: str, start: str | None) -> str:
+    digest = hashlib.sha1(f"{kind}|{card_key}|{title}|{start or ''}".encode()).hexdigest()[:10]
     return f"{kind}-{digest}"
 
 
@@ -296,6 +352,7 @@ def _source_page(
 def validate_extraction(
     raw: Any,
     *,
+    card_key: str,
     bank: str,
     card: str,
     pages: list[OpenedPage],
@@ -303,7 +360,9 @@ def validate_extraction(
     now: datetime | None = None,
 ) -> CardResult:
     """Keep only items that survive every hard check. Everything else is dropped with a reason."""
-    result = CardResult(bank, card)
+    if not card_key:
+        raise ValueError("card_key is required: extracted data must name its catalog card")
+    result = CardResult(bank, card, card_key)
     if not isinstance(raw, dict):
         result.error = "extraction was not a JSON object"
         return result
@@ -354,9 +413,10 @@ def validate_extraction(
         else:
             result.base_benefits.append(
                 {
-                    "id": _stable_id("benefit", bank, card, title, None),
-                    "bank": bank,
-                    "card": card,
+                    "id": _stable_id("benefit", card_key, title, None),
+                    "card_key": card_key,
+                    "source_bank_name": bank,
+                    "source_card_name": card,
                     "title": title,
                     "reward": reward,
                     "conditions": _text(item.get("conditions")) or None,
@@ -403,9 +463,10 @@ def validate_extraction(
             recurrence = _text(item.get("recurrence")).lower()
             result.campaigns.append(
                 {
-                    "id": _stable_id("campaign", bank, card, title, start.isoformat()),
-                    "bank": bank,
-                    "card": card,
+                    "id": _stable_id("campaign", card_key, title, start.isoformat()),
+                    "card_key": card_key,
+                    "source_bank_name": bank,
+                    "source_card_name": card,
                     "title": title,
                     "register_from": _iso_or_none(item.get("register_from")),
                     "register_until": _iso_or_none(item.get("register_until")),
@@ -462,28 +523,45 @@ def extraction_payload(
 
 
 async def crawl_card(
-    bank: str,
-    card: str,
+    target: CrawlTarget,
     *,
     today: date,
     search: Search,
     extract: Callable[[dict[str, Any]], Any],
     fetch: Fetch = fetch_page,
     now: datetime | None = None,
+    run_blocking: Callable[..., Awaitable[Any]] | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> CardResult:
-    """One card: search (structured), open official pages, extract, validate."""
+    """One catalog card: search (structured), open official pages, extract, validate.
+
+    The search and page fetches are synchronous, which is fine for the batch CLI. Inside an
+    async server pass `run_blocking` (an awaitable runner such as a thread-pool executor) so
+    they run off the event loop, and `cancelled` so an abandoned run stops early."""
+    bank, card = target.bank, target.card
     try:
-        pages = gather_official_pages(bank, card, year=today.year, search=search, fetch=fetch)
+        gather = functools.partial(
+            gather_official_pages,
+            bank,
+            card,
+            year=today.year,
+            search=search,
+            fetch=fetch,
+            cancelled=cancelled,
+        )
+        pages = await run_blocking(gather) if run_blocking is not None else gather()
     except Exception as exc:  # network / search library failure for this card only
-        return CardResult(bank, card, error=f"search or fetch failed: {exc}")
+        return CardResult(bank, card, target.card_key, error=f"search or fetch failed: {exc}")
     if not pages:
-        return CardResult(bank, card, error="no official page could be opened")
+        return CardResult(bank, card, target.card_key, error="no official page could be opened")
     try:
         raw = extract(extraction_payload(bank, card, pages, today))
         raw = await raw if hasattr(raw, "__await__") else raw
     except Exception as exc:
-        return CardResult(bank, card, error=f"extraction failed: {exc}")
-    return validate_extraction(raw, bank=bank, card=card, pages=pages, today=today, now=now)
+        return CardResult(bank, card, target.card_key, error=f"extraction failed: {exc}")
+    return validate_extraction(
+        raw, card_key=target.card_key, bank=bank, card=card, pages=pages, today=today, now=now
+    )
 
 
 # --- output ----------------------------------------------------------------
@@ -542,15 +620,16 @@ def load_existing_dataset(path: Path) -> dict[str, Any]:
 def merge_datasets(
     existing: dict[str, Any],
     new: dict[str, Any],
-    refreshed: set[tuple[str, str]],
+    refreshed: set[str],
     *,
     now: datetime,
 ) -> dict[str, Any]:
-    """Cards that crawled successfully are replaced by their new results; every other
-    entry (cards that failed this run, cards not crawled, legacy rows) is kept untouched."""
+    """Cards (by card_key) that crawled successfully are replaced by their new results;
+    every other entry (cards that failed this run, cards not crawled, legacy rows that carry
+    no card_key) is kept untouched."""
 
     def keep(item: Any) -> bool:
-        return not (isinstance(item, dict) and (item.get("bank"), item.get("card")) in refreshed)
+        return not (isinstance(item, dict) and item.get("card_key") in refreshed)
 
     def combine(kind: str) -> list[dict[str, Any]]:
         merged: dict[str, dict[str, Any]] = {}
@@ -580,9 +659,9 @@ def finalize(results: list[CardResult], path: Path, *, now: datetime) -> int:
     failed = [r for r in results if r.error]
     for r in results:
         for reason in r.dropped:
-            logger.info("dropped for %s %s: %s", r.bank, r.card, reason)
+            logger.info("dropped for %s: %s", r.card_key or r.card, reason)
     for r in failed:
-        logger.warning("FAILED %s %s: %s", r.bank, r.card, r.error)
+        logger.warning("FAILED %s (%s %s): %s", r.card_key, r.bank, r.card, r.error)
 
     new = build_dataset(results, now=now)
     new_total = len(new["base_benefits"]) + len(new["campaigns"])
@@ -600,7 +679,7 @@ def finalize(results: list[CardResult], path: Path, *, now: datetime) -> int:
         logger.error("cannot merge into %s (%s); file left unchanged", path, exc)
         return 1
 
-    refreshed = {(r.bank, r.card) for r in results if not r.error}
+    refreshed = {r.card_key for r in results if not r.error and r.card_key}
     merged = merge_datasets(existing, new, refreshed, now=now)
     write_dataset_atomically(merged, path)
 
@@ -609,9 +688,9 @@ def finalize(results: list[CardResult], path: Path, *, now: datetime) -> int:
             1
             for kind in ("base_benefits", "campaigns")
             for item in existing[kind]
-            if isinstance(item, dict) and (item.get("bank"), item.get("card")) == (r.bank, r.card)
+            if isinstance(item, dict) and r.card_key and item.get("card_key") == r.card_key
         )
-        logger.warning("kept %d existing entries for failed card %s %s", kept, r.bank, r.card)
+        logger.warning("kept %d existing entries for failed card %s", kept, r.card_key or r.card)
     logger.info(
         "wrote %d base benefits and %d campaigns to %s (%d new this run)",
         len(merged["base_benefits"]),
@@ -621,6 +700,8 @@ def finalize(results: list[CardResult], path: Path, *, now: datetime) -> int:
     )
     if failed:
         logger.warning(
-            "%d cards failed: %s", len(failed), ", ".join(f"{r.bank} {r.card}" for r in failed)
+            "%d cards failed: %s",
+            len(failed),
+            ", ".join(r.card_key or f"{r.bank} {r.card}" for r in failed),
         )
     return 0

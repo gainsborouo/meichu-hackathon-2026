@@ -43,11 +43,22 @@ class User(Base):
     )
 
 
+def _adhoc_key() -> str:
+    return f"adhoc-{uuid.uuid4().hex}"
+
+
 class Card(Base):
     __tablename__ = "cards"
     __table_args__ = (UniqueConstraint("bank_name", "name"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    # The one stable identity: unique, never a display name, independent of artwork_id.
+    # Catalog cards get it from app.services.card_identity; anything else gets an adhoc key.
+    catalog_key: Mapped[str] = mapped_column(sa.Text, unique=True, default=_adhoc_key)
+    crawler_enabled: Mapped[bool] = mapped_column(default=False, server_default=sa.false())
+    # Wording the crawler searches with (may differ from the catalog display name).
+    search_bank_name: Mapped[str | None] = mapped_column(sa.Text)
+    search_card_name: Mapped[str | None] = mapped_column(sa.Text)
     bank_name: Mapped[str | None] = mapped_column(sa.Text)
     name: Mapped[str] = mapped_column(sa.Text)
     artwork_id: Mapped[str | None] = mapped_column(sa.Text, unique=True)

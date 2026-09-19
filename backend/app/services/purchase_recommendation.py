@@ -67,6 +67,8 @@ class Preprocessed:
     future_candidates: list[dict[str, Any]]
     spend_context: dict[str, Any]
     excluded: dict[str, int] = field(default_factory=dict)
+    # True once a live official lookup ran for this request and still found nothing usable.
+    lookup_attempted: bool = False
 
     @property
     def has_candidates(self) -> bool:
@@ -511,8 +513,12 @@ def empty_explanation(pre: Preprocessed) -> str:
     if not pre.held_cards:
         return "尚未加入任何持有的信用卡，無法推薦。"
     if pre.mode == "registration":
-        return "目前持有的卡片中，沒有符合此購物條件且需登錄的有效優惠。"
-    return "目前持有的卡片中，沒有符合此購物條件的有效基本回饋或免登錄優惠。"
+        text = "目前持有的卡片中，沒有符合此購物條件且需登錄的有效優惠。"
+    else:
+        text = "目前持有的卡片中，沒有符合此購物條件的有效基本回饋或免登錄優惠。"
+    if pre.lookup_attempted:
+        text += "已嘗試即時查詢銀行官方網站，仍找不到可驗證的資料。"
+    return text
 
 
 def assemble(pre: Preprocessed, raw: dict[str, Any]) -> RecommendationResponse:

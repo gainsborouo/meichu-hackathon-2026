@@ -21,6 +21,10 @@ async def get_or_create_card(session: AsyncSession, *, bank_name: str | None, na
     return card
 
 
+async def get_card_id_by_key(session: AsyncSession, catalog_key: str) -> uuid.UUID | None:
+    return await session.scalar(select(Card.id).where(Card.catalog_key == catalog_key))
+
+
 async def list_cards(session: AsyncSession) -> list[Card]:
     return list(await session.scalars(select(Card).order_by(Card.bank_name, Card.name)))
 

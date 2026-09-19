@@ -35,3 +35,16 @@ def no_model_calls(monkeypatch):
         raise SpendReportAgentError("model calls are disabled in tests")
 
     monkeypatch.setattr(spend_report, "write_report", _refuse)
+
+
+@pytest_asyncio.fixture
+async def catalog(session: AsyncSession) -> AsyncSession:
+    """The real card catalog (94 cards) with canonical catalog_keys, as production has it.
+
+    Importers only ever attach data to these existing cards; they never create one, so any
+    test that imports campaigns or benefits needs this.
+    """
+    from app.services.card_catalog import import_card_catalog, load_card_catalog
+
+    await import_card_catalog(session, load_card_catalog())
+    return session

@@ -11,7 +11,7 @@ from app.services.users import upsert_user
 
 
 @pytest_asyncio.fixture
-async def client(session):
+async def client(session, catalog):
     app = create_app()
 
     async def _session():
@@ -29,7 +29,9 @@ async def client(session):
 
 async def test_card_analysis_and_sales_flow(client, session) -> None:
     p = get_settings().api_v1_prefix
-    card = (await client.get(f"{p}/cards")).json()[0]
+    # A catalog card that actually has an imported campaign (the crawler data covers few).
+    sale0 = (await client.get(f"{p}/sales")).json()[0]
+    card = next(c for c in (await client.get(f"{p}/cards")).json() if c["id"] == sale0["card_id"])
     assert {
         "artwork_id",
         "display_name",

@@ -11,6 +11,7 @@ from app.models import CardBenefit, Sale
 from app.services import campaign_crawler as crawler
 from app.services.campaign_crawler import (
     CardResult,
+    CrawlTarget,
     OpenedPage,
     build_queries,
     card_aliases,
@@ -25,6 +26,8 @@ from app.services.sales_import import import_dataset, load_dataset
 TODAY = date(2026, 9, 20)
 NOW = datetime(2026, 9, 20, 3, tzinfo=UTC)
 BANK, CARD = "玉山銀行", "Unicard"
+KEY = "esun-unicard"
+TARGET = CrawlTarget(KEY, BANK, CARD)
 PAGE_URL = "https://www.esunbank.com/zh-tw/credit-cards/unicard"
 PROMO_URL = "https://www.esunbank.com/zh-tw/promo/online"
 BASE_QUOTE = "國內一般消費享 1% 回饋，無上限"
@@ -68,7 +71,13 @@ def camp(**over):
 
 
 def check(raw, pages=PAGES, **kw):
-    return validate_extraction(raw, bank=BANK, card=CARD, pages=pages, today=TODAY, **kw)
+    return validate_extraction(
+        raw, card_key=KEY, bank=BANK, card=CARD, pages=pages, today=TODAY, **kw
+    )
+
+
+def c_key_ok(item):
+    return item["source_bank_name"] == BANK and item["source_card_name"] == CARD
 
 
 def reasons(result):
@@ -144,7 +153,8 @@ def test_valid_items_pass_and_source_url_is_the_opened_page():
     assert result.dropped == [] and result.error is None
     [b], [c] = result.base_benefits, result.campaigns
     assert b["source_url"] == PAGE_URL and b["effective_end"] is None
-    assert b["bank"] == BANK and b["card"] == CARD  # task identity, not the model's
+    assert b["card_key"] == KEY and c_key_ok(b)  # identity is the catalog key, not the model's
+    assert "bank" not in b and "card" not in b
     assert c["campaign_start"] == "2026-09-01" and c["campaign_end"] == "2026-12-31"
     assert c["source_url"] == PROMO_URL and c["id"].startswith("campaign-")
     assert "official_verified_at" not in b and "official_verified_at" not in c
@@ -304,6 +314,7 @@ def test_card_alias_is_enough_to_recognise_the_card():
     text = f"LINE Pay 是綁定方式。{VALID_QUOTE}。" * 3
     result = validate_extraction(
         {"base_benefits": [base(source_url=url)]},
+        card_key="ctbc-linepay",
         bank="中國信託銀行",
         card="LINE Pay 聯名卡",  # the page says "LINE Pay", not the full card name
         pages=[OpenedPage(url, "t", text)],
@@ -357,8 +368,7 @@ async def test_crawl_card_end_to_end_with_fakes():
         }
 
     result = await crawl_card(
-        BANK,
-        CARD,
+        TARGET,
         today=TODAY,
         search=lambda q: [PAGE_URL, PROMO_URL, "https://www.ptt.cc/x"],
         fetch=lambda url: ok(url),
@@ -371,22 +381,21 @@ async def test_crawl_card_end_to_end_with_fakes():
 
 async def test_crawl_card_reports_failures_instead_of_raising():
     no_pages = await crawl_card(
-        BANK, CARD, today=TODAY, search=lambda q: [], fetch=lambda u: ok(u), extract=lambda p: {}
+        TARGET, today=TODAY, search=lambda q: [], fetch=lambda u: ok(u), extract=lambda p: {}
     )
     assert no_pages.error == "no official page could be opened"
 
     def boom(query):
         raise RuntimeError("rate limited")
 
-    searched = await crawl_card(BANK, CARD, today=TODAY, search=boom, extract=lambda p: {})
+    searched = await crawl_card(TARGET, today=TODAY, search=boom, extract=lambda p: {})
     assert "search or fetch failed" in searched.error
 
     async def bad_model(payload):
         raise ValueError("bad json")
 
     extracted = await crawl_card(
-        BANK,
-        CARD,
+        TARGET,
         today=TODAY,
         search=lambda q: [PAGE_URL],
         fetch=lambda u: ok(u),
@@ -408,7 +417,7 @@ def test_zero_verified_items_keeps_the_existing_json_and_exits_nonzero(tmp_path,
     target.write_text(original, "utf-8")
 
     results = [
-        CardResult(BANK, CARD, error="no official page could be opened"),
+        CardResult(BANK, CARD, KEY, error="no official page could be opened"),
         check({"campaigns": [camp(campaign_end="2025-12-31")]}),  # expired: nothing survives
     ]
     with caplog.at_level(logging.INFO):
@@ -417,12 +426,12 @@ def test_zero_verified_items_keeps_the_existing_json_and_exits_nonzero(tmp_path,
     assert code == 1
     assert target.read_text("utf-8") == original, "existing JSON must not be overwritten"
     assert not list(tmp_path.glob("*.tmp"))
-    assert "FAILED 玉山銀行 Unicard" in caplog.text and "left unchanged" in caplog.text
+    assert "FAILED esun-unicard" in caplog.text and "left unchanged" in caplog.text
 
 
 def test_missing_target_is_not_created_when_nothing_verified(tmp_path):
     target = tmp_path / "credit_card_campaigns.json"
-    assert finalize([CardResult(BANK, CARD, error="x")], target, now=NOW) == 1
+    assert finalize([CardResult(BANK, CARD, KEY, error="x")], target, now=NOW) == 1
     assert not target.exists()
 
 
@@ -431,7 +440,9 @@ def test_partial_failure_still_writes_the_verified_cards_and_lists_failures(tmp_
     target.write_text("[]", "utf-8")
     results = [
         good_result(),
-        CardResult("台新銀行", "@GoGo 卡", error="no official page could be opened"),
+        CardResult(
+            "台新銀行", "@GoGo 卡", "taishin-gogo", error="no official page could be opened"
+        ),
     ]
     with caplog.at_level(logging.INFO):
         code = finalize(results, target, now=NOW)
@@ -441,7 +452,7 @@ def test_partial_failure_still_writes_the_verified_cards_and_lists_failures(tmp_
     assert set(data) == {"generated_at", "base_benefits", "campaigns"}
     assert data["generated_at"] == NOW.isoformat()
     assert len(data["base_benefits"]) == 1 and len(data["campaigns"]) == 1
-    assert "1 cards failed: 台新銀行 @GoGo 卡" in caplog.text
+    assert "1 cards failed: taishin-gogo" in caplog.text
     assert not list(tmp_path.glob("*.tmp"))
 
 
@@ -464,7 +475,7 @@ def test_duplicate_items_across_cards_are_written_once():
     assert len(dataset["base_benefits"]) == 1 and len(dataset["campaigns"]) == 1
 
 
-async def test_crawler_output_imports_and_is_not_marked_verified(session, tmp_path):
+async def test_crawler_output_imports_and_is_not_marked_verified(session, catalog, tmp_path):
     target = tmp_path / "out.json"
     assert finalize([good_result()], target, now=NOW) == 0
 
@@ -641,6 +652,7 @@ def test_republic_of_china_calendar_dates_are_converted():
 # --- review fix 3: a partial crawl must not truncate the canonical dataset ---------
 
 CTBC_BANK, CTBC_CARD = "中國信託銀行", "LINE Pay 聯名卡"
+CTBC_KEY = "ctbc-linepay"
 
 
 def old_dataset():
@@ -649,24 +661,21 @@ def old_dataset():
         "base_benefits": [
             {
                 "id": "benefit-ctbc-old",
-                "bank": CTBC_BANK,
-                "card": CTBC_CARD,
+                "card_key": CTBC_KEY,
                 "title": "舊 CTBC 基本回饋",
             },
-            {"id": "benefit-esun-old", "bank": BANK, "card": CARD, "title": "舊玉山基本回饋"},
+            {"id": "benefit-esun-old", "card_key": KEY, "title": "舊玉山基本回饋"},
         ],
         "campaigns": [
             {
                 "id": "campaign-ctbc-old",
-                "bank": CTBC_BANK,
-                "card": CTBC_CARD,
+                "card_key": CTBC_KEY,
                 "title": "舊 CTBC 活動",
             },
-            {"id": "campaign-esun-old", "bank": BANK, "card": CARD, "title": "舊玉山活動"},
+            {"id": "campaign-esun-old", "card_key": KEY, "title": "舊玉山活動"},
             {
                 "id": "campaign-other-old",
-                "bank": "台新銀行",
-                "card": "@GoGo 卡",
+                "card_key": "taishin-gogo",
                 "title": "沒爬的卡",
             },
         ],
@@ -683,7 +692,7 @@ def test_failed_card_keeps_its_old_entries_and_successful_card_is_updated(tmp_pa
 
     results = [
         CardResult(
-            CTBC_BANK, CTBC_CARD, error="no official page could be opened"
+            CTBC_BANK, CTBC_CARD, CTBC_KEY, error="no official page could be opened"
         ),  # this run fails
         good_result(),  # 玉山 succeeds with new data
     ]
@@ -702,7 +711,7 @@ def test_failed_card_keeps_its_old_entries_and_successful_card_is_updated(tmp_pa
     # A card that was not crawled at all is also kept.
     assert "campaign-other-old" in ids_of(out, "campaigns")
     assert out["generated_at"] == NOW.isoformat()
-    assert "kept 2 existing entries for failed card 中國信託銀行 LINE Pay 聯名卡" in caplog.text
+    assert "kept 2 existing entries for failed card ctbc-linepay" in caplog.text
     assert not list(tmp_path.glob("*.tmp"))
 
 
@@ -710,7 +719,10 @@ def test_all_cards_failing_leaves_the_file_byte_identical_and_exits_nonzero(tmp_
     target = tmp_path / "credit_card_campaigns.json"
     original = json.dumps(old_dataset(), ensure_ascii=False, indent=2)
     target.write_text(original, "utf-8")
-    results = [CardResult(CTBC_BANK, CTBC_CARD, error="x"), CardResult(BANK, CARD, error="y")]
+    results = [
+        CardResult(CTBC_BANK, CTBC_CARD, CTBC_KEY, error="x"),
+        CardResult(BANK, CARD, KEY, error="y"),
+    ]
     assert finalize(results, target, now=NOW) == 1
     assert target.read_text("utf-8") == original
 
@@ -740,7 +752,7 @@ def test_successful_card_with_nothing_valid_clears_only_its_own_stale_entries(tm
     target = tmp_path / "credit_card_campaigns.json"
     target.write_text(json.dumps(old_dataset(), ensure_ascii=False), "utf-8")
     results = [
-        CardResult(CTBC_BANK, CTBC_CARD),  # crawled fine, nothing verified this time
+        CardResult(CTBC_BANK, CTBC_CARD, CTBC_KEY),  # crawled fine, nothing verified this time
         good_result(),  # keeps the run non-empty
     ]
     assert finalize(results, target, now=NOW) == 0
