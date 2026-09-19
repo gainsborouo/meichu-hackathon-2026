@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import {
+  ChevronDown,
   CircleCheck,
   CreditCard,
   LoaderCircle,
@@ -41,7 +42,13 @@ interface UserCard {
   created_at: string
 }
 
-const resultLimit = 24
+interface CardGroup {
+  key: string
+  bankName: string
+  cards: ApiCard[]
+  totalCount: number
+}
+
 const searchQuery = ref('')
 const catalogCards = ref<ApiCard[]>([])
 const ownedCards = ref<UserCard[]>([])
@@ -52,8 +59,10 @@ const failedAction = ref<CardAction | null>(null)
 const actionError = ref('')
 const announcement = ref('')
 const failedImageIds = ref(new Set<string>())
+const expandedBankKeys = ref(new Set<string>())
 
 const ownedCardIds = computed(() => new Set(ownedCards.value.map(({ card }) => card.id)))
+const hasSearchQuery = computed(() => searchQuery.value.trim().length > 0)
 
 const filteredCards = computed(() => {
   const query = searchQuery.value.trim().toLocaleLowerCase('zh-TW')
@@ -61,14 +70,7 @@ const filteredCards = computed(() => {
   if (!query) return catalogCards.value
 
   return catalogCards.value.filter((card) =>
-    [
-      card.bank_name,
-      card.name,
-      card.issuer_en,
-      card.variant,
-      card.network,
-      card.tier,
-    ]
+    [card.bank_name, card.name, card.issuer_en, card.variant, card.network, card.tier]
       .filter(Boolean)
       .join(' ')
       .toLocaleLowerCase('zh-TW')
@@ -76,7 +78,55 @@ const filteredCards = computed(() => {
   )
 })
 
-const displayedCards = computed(() => filteredCards.value.slice(0, resultLimit))
+const cardTotalsByBank = computed(() => {
+  const totals = new Map<string, number>()
+
+  for (const card of catalogCards.value) {
+    const key = card.bank_name ?? ''
+    totals.set(key, (totals.get(key) ?? 0) + 1)
+  }
+
+  return totals
+})
+
+const groupedCards = computed<CardGroup[]>(() => {
+  const groups = new Map<string, CardGroup>()
+
+  for (const card of filteredCards.value) {
+    const key = card.bank_name ?? ''
+    const group = groups.get(key)
+
+    if (group) {
+      group.cards.push(card)
+      continue
+    }
+
+    groups.set(key, {
+      key,
+      bankName: card.bank_name ?? '發卡銀行未提供',
+      cards: [card],
+      totalCount: cardTotalsByBank.value.get(key) ?? 0,
+    })
+  }
+
+  return [...groups.values()]
+})
+
+function expandAllVisibleBanks() {
+  expandedBankKeys.value = new Set(groupedCards.value.map(({ key }) => key))
+}
+
+function handleBankToggle(key: string, event: Event) {
+  const details = event.currentTarget
+  if (!(details instanceof HTMLDetailsElement)) return
+
+  const nextKeys = new Set(expandedBankKeys.value)
+  if (details.open) nextKeys.add(key)
+  else nextKeys.delete(key)
+  expandedBankKeys.value = nextKeys
+}
+
+watch(searchQuery, expandAllVisibleBanks)
 
 function isOwned(card: ApiCard) {
   return ownedCardIds.value.has(card.id)
@@ -158,6 +208,7 @@ onMounted(async () => {
 
     catalogCards.value = catalogResponse.data
     ownedCards.value = ownedResponse.data
+    expandAllVisibleBanks()
   } catch {
     loadError.value = '無法讀取卡片資料，請稍後再試。'
   } finally {
@@ -214,9 +265,7 @@ onMounted(async () => {
             <article v-for="userCard in ownedCards" :key="userCard.id" class="wallet-card">
               <div class="wallet-card__media">
                 <img
-                  v-if="
-                    userCard.card.artwork_id && !failedImageIds.has(userCard.card.artwork_id)
-                  "
+                  v-if="userCard.card.artwork_id && !failedImageIds.has(userCard.card.artwork_id)"
                   :src="`/card-art/${userCard.card.artwork_id}.webp`"
                   :alt="`${userCard.card.bank_name ?? ''}${userCard.card.name}卡面`"
                   width="640"
@@ -289,9 +338,6 @@ onMounted(async () => {
           aria-live="polite"
         >
           <span>找到 {{ filteredCards.length }} 張信用卡</span>
-          <span v-if="filteredCards.length > resultLimit">
-            顯示前 {{ resultLimit }} 張，輸入關鍵字可縮小範圍。
-          </span>
         </div>
 
         <div v-if="isLoading" class="catalogue-loading" role="status">
@@ -299,7 +345,7 @@ onMounted(async () => {
           <span>正在讀取信用卡清單…</span>
         </div>
 
-        <div v-else-if="!loadError && displayedCards.length === 0" class="catalogue-empty">
+        <div v-else-if="!loadError && groupedCards.length === 0" class="catalogue-empty">
           <Search :size="28" :stroke-width="1.6" aria-hidden="true" />
           <div>
             <h3>找不到符合條件的信用卡</h3>
@@ -307,55 +353,81 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div v-else-if="displayedCards.length > 0" class="catalogue-grid">
-          <article v-for="card in displayedCards" :key="card.id" class="catalogue-card">
-            <div class="catalogue-card__image">
-              <img
-                v-if="card.artwork_id && !failedImageIds.has(card.artwork_id)"
-                :src="`/card-art/${card.artwork_id}.webp`"
-                :alt="`${card.bank_name ?? ''}${card.name}卡面`"
-                width="640"
-                height="400"
-                loading="lazy"
-                @error="markImageFailed(card.artwork_id)"
-              />
-              <div v-else class="card-art-fallback">
-                <CreditCard :size="36" :stroke-width="1.5" aria-hidden="true" />
-                <span>卡面圖片無法顯示</span>
-              </div>
-            </div>
+        <div v-else-if="groupedCards.length > 0" class="catalogue-groups">
+          <details
+            v-for="group in groupedCards"
+            :key="group.key"
+            class="catalogue-bank"
+            :open="expandedBankKeys.has(group.key)"
+            @toggle="handleBankToggle(group.key, $event)"
+          >
+            <summary>
+              <span class="catalogue-bank__name">
+                <ChevronDown :size="20" aria-hidden="true" />
+                {{ group.bankName }}
+              </span>
+              <span class="catalogue-bank__count">
+                {{
+                  hasSearchQuery
+                    ? `符合 ${group.cards.length}／全部 ${group.totalCount} 張`
+                    : `${group.totalCount} 張`
+                }}
+              </span>
+            </summary>
 
-            <div class="catalogue-card__meta">
-              <div>
-                <h3>{{ card.name }}</h3>
-                <p>{{ card.bank_name ?? '發卡銀行未提供' }}</p>
-              </div>
-            </div>
+            <div class="catalogue-grid">
+              <article v-for="card in group.cards" :key="card.id" class="catalogue-card">
+                <div class="catalogue-card__image">
+                  <img
+                    v-if="card.artwork_id && !failedImageIds.has(card.artwork_id)"
+                    :src="`/card-art/${card.artwork_id}.webp`"
+                    :alt="`${card.bank_name ?? ''}${card.name}卡面`"
+                    width="640"
+                    height="400"
+                    loading="lazy"
+                    @error="markImageFailed(card.artwork_id)"
+                  />
+                  <div v-else class="card-art-fallback">
+                    <CreditCard :size="36" :stroke-width="1.5" aria-hidden="true" />
+                    <span>卡面圖片無法顯示</span>
+                  </div>
+                </div>
 
-            <button
-              class="catalogue-card__action"
-              type="button"
-              :data-state="addButtonState(card)"
-              :disabled="Boolean(pendingAction) || isOwned(card)"
-              :aria-busy="isPending(card.id, 'POST')"
-              :aria-label="
-                isOwned(card)
-                  ? `已加入${card.bank_name ?? ''}${card.name}`
-                  : `加入${card.bank_name ?? ''}${card.name}`
-              "
-              @click="addCard(card)"
-            >
-              <LoaderCircle
-                v-if="isPending(card.id, 'POST')"
-                class="button-spinner"
-                :size="18"
-                aria-hidden="true"
-              />
-              <CircleCheck v-else-if="isOwned(card)" :size="18" aria-hidden="true" />
-              <Plus v-else :size="18" aria-hidden="true" />
-              {{ isPending(card.id, 'POST') ? '加入中…' : isOwned(card) ? '已加入' : '加入卡片' }}
-            </button>
-          </article>
+                <div class="catalogue-card__meta">
+                  <div>
+                    <h3>{{ card.name }}</h3>
+                    <p>{{ card.bank_name ?? '發卡銀行未提供' }}</p>
+                  </div>
+                </div>
+
+                <button
+                  class="catalogue-card__action"
+                  type="button"
+                  :data-state="addButtonState(card)"
+                  :disabled="Boolean(pendingAction) || isOwned(card)"
+                  :aria-busy="isPending(card.id, 'POST')"
+                  :aria-label="
+                    isOwned(card)
+                      ? `已加入${card.bank_name ?? ''}${card.name}`
+                      : `加入${card.bank_name ?? ''}${card.name}`
+                  "
+                  @click="addCard(card)"
+                >
+                  <LoaderCircle
+                    v-if="isPending(card.id, 'POST')"
+                    class="button-spinner"
+                    :size="18"
+                    aria-hidden="true"
+                  />
+                  <CircleCheck v-else-if="isOwned(card)" :size="18" aria-hidden="true" />
+                  <Plus v-else :size="18" aria-hidden="true" />
+                  {{
+                    isPending(card.id, 'POST') ? '加入中…' : isOwned(card) ? '已加入' : '加入卡片'
+                  }}
+                </button>
+              </article>
+            </div>
+          </details>
         </div>
       </section>
     </main>
@@ -637,6 +709,7 @@ onMounted(async () => {
 }
 
 .catalogue-card__action:focus-visible,
+.catalogue-bank > summary:focus-visible,
 .search-control input:focus-visible {
   outline-color: var(--color-focus);
 }
@@ -724,6 +797,70 @@ onMounted(async () => {
   color: var(--color-muted);
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
+}
+
+.catalogue-groups {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.catalogue-bank {
+  overflow: clip;
+  border: var(--rule-hairline) solid var(--color-rule);
+  border-radius: var(--radius-panel);
+  background: var(--color-paper);
+}
+
+.catalogue-bank > summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  border-radius: var(--radius-panel);
+  outline: var(--rule-focus) solid transparent;
+  outline-offset: calc(-1 * var(--rule-focus));
+  padding: var(--space-md) var(--space-lg);
+  cursor: pointer;
+  list-style: none;
+}
+
+.catalogue-bank > summary::-webkit-details-marker {
+  display: none;
+}
+
+.catalogue-bank__name {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-sm);
+  overflow-wrap: anywhere;
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: 700;
+}
+
+.catalogue-bank__name > svg {
+  flex: 0 0 auto;
+  color: var(--color-accent);
+  transition: transform var(--dur-short) var(--ease-out);
+}
+
+.catalogue-bank[open] .catalogue-bank__name > svg {
+  transform: rotate(180deg);
+}
+
+.catalogue-bank__count {
+  flex: 0 0 auto;
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.catalogue-bank > .catalogue-grid {
+  border-top: var(--rule-hairline) solid var(--color-rule);
+  padding: var(--space-lg);
 }
 
 .catalogue-grid {
@@ -837,6 +974,10 @@ onMounted(async () => {
   .search-control input:hover:not(:focus-visible) {
     background: var(--color-paper-2);
   }
+
+  .catalogue-bank > summary:hover {
+    background: var(--color-paper-2);
+  }
 }
 
 @media (min-width: 40rem) {
@@ -880,6 +1021,7 @@ onMounted(async () => {
 @media (prefers-reduced-motion: reduce) {
   .wallet-remove,
   .catalogue-card__action,
+  .catalogue-bank__name > svg,
   .search-control input {
     transition-duration: var(--dur-reduced);
   }

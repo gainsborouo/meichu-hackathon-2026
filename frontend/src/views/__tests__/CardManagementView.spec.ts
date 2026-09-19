@@ -45,12 +45,29 @@ const ownedCard = {
   created_at: '2026-09-19T00:00:00Z',
 }
 
-function mockInitialRequests(userCards: unknown[] = []) {
+function mockInitialRequests(userCards: unknown[] = [], cards: unknown[] = catalogCards) {
   apiMocks.get.mockImplementation((url) => {
-    if (url === '/cards') return Promise.resolve({ data: catalogCards })
+    if (url === '/cards') return Promise.resolve({ data: cards })
     if (url === '/me/cards') return Promise.resolve({ data: userCards })
     return Promise.reject(new Error(`Unexpected URL: ${url}`))
   })
+}
+
+function buildGroupedCatalogCards() {
+  return [
+    ...Array.from({ length: 13 }, (_, index) => ({
+      ...catalogCards[0]!,
+      id: `ctbc-${index}`,
+      name: index === 0 ? '搜尋目標卡' : `中國信託信用卡 ${index}`,
+      artwork_id: `ctbc-art-${index}`,
+    })),
+    ...Array.from({ length: 13 }, (_, index) => ({
+      ...catalogCards[1]!,
+      id: `fubon-${index}`,
+      name: `台北富邦信用卡 ${index}`,
+      artwork_id: `fubon-art-${index}`,
+    })),
+  ]
 }
 
 function mountCardManagement() {
@@ -89,6 +106,55 @@ describe('CardManagementView', () => {
     expect(wrapper.get('.catalogue-card__image img').attributes('src')).toBe(
       `/card-art/${catalogCards[0]!.artwork_id}.webp`,
     )
+  })
+
+  it('依銀行分組並顯示超過 24 張的完整卡片目錄', async () => {
+    mockInitialRequests([], buildGroupedCatalogCards())
+
+    const wrapper = mountCardManagement()
+    await flushPromises()
+
+    const groups = wrapper.findAll('details.catalogue-bank')
+    expect(groups).toHaveLength(2)
+    expect(groups.every((group) => (group.element as HTMLDetailsElement).open)).toBe(true)
+    expect(wrapper.findAll('.catalogue-card')).toHaveLength(26)
+    expect(groups[0]!.get('summary').text()).toContain('中國信託銀行')
+    expect(groups[0]!.get('summary').text()).toContain('13 張')
+    expect(groups[1]!.get('summary').text()).toContain('台北富邦銀行')
+    expect(groups[1]!.get('summary').text()).toContain('13 張')
+  })
+
+  it('獨立收合銀行群組，搜尋時自動展開，清除搜尋後全部展開', async () => {
+    mockInitialRequests([], buildGroupedCatalogCards())
+
+    const wrapper = mountCardManagement()
+    await flushPromises()
+
+    const initialGroups = wrapper.findAll('details.catalogue-bank')
+    ;(initialGroups[0]!.element as HTMLDetailsElement).open = false
+    await initialGroups[0]!.trigger('toggle')
+
+    expect((wrapper.findAll('details.catalogue-bank')[0]!.element as HTMLDetailsElement).open).toBe(
+      false,
+    )
+    expect((wrapper.findAll('details.catalogue-bank')[1]!.element as HTMLDetailsElement).open).toBe(
+      true,
+    )
+
+    await wrapper.get('#card-search').setValue('搜尋目標')
+
+    const matchingGroups = wrapper.findAll('details.catalogue-bank')
+    expect(matchingGroups).toHaveLength(1)
+    expect((matchingGroups[0]!.element as HTMLDetailsElement).open).toBe(true)
+    expect(matchingGroups[0]!.get('summary').text()).toContain('符合 1／全部 13 張')
+    expect(wrapper.findAll('.catalogue-card')).toHaveLength(1)
+
+    await wrapper.get('#card-search').setValue('')
+
+    const resetGroups = wrapper.findAll('details.catalogue-bank')
+    expect(resetGroups).toHaveLength(2)
+    expect(resetGroups.every((group) => (group.element as HTMLDetailsElement).open)).toBe(true)
+    expect(wrapper.findAll('.catalogue-card')).toHaveLength(26)
   })
 
   it('初始讀取失敗時顯示錯誤，且不顯示空卡包', async () => {
