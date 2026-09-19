@@ -83,6 +83,17 @@ def official(url="https://www.esunbank.com/promo"):
     return [{"title": "官方活動頁", "url": url}]
 
 
+def observed(raw):
+    """Mimic the runner: every URL the model cites was returned by the search tool."""
+    urls = [
+        src["url"]
+        for key in ("best_now", "best_future")
+        if isinstance(raw.get(key), dict)
+        for src in raw[key].get("official_sources", [])
+    ]
+    return {**raw, "observed_urls": urls}
+
+
 @pytest_asyncio.fixture
 async def world(session):
     """A user holding Unicard (玉山) and @GoGo (台新); CUBE (國泰) exists but is not held."""
@@ -240,7 +251,7 @@ async def test_official_source_verifies_and_backend_numbers_win(session, world):
             "estimated_reward_twd": 99999,  # invented by the "model"; must be ignored
         }
     }
-    best = service.assemble(p, raw).best_now
+    best = service.assemble(p, observed(raw)).best_now
     assert best.verification_status == "verified"
     assert best.estimated_reward_twd == 224.7 and best.rate_display == "3%"
     assert best.card.name == "Unicard" and best.requires_registration is False
@@ -259,17 +270,19 @@ def test_official_domain_rules():
 
 
 def _raw(now_id="free-uni#0", fut_id="future-gogo#0", fut_sources=None):
-    return {
-        "best_now": {"candidate_id": now_id, "reason": "now", "official_sources": official()},
-        "best_future": {
-            "candidate_id": fut_id,
-            "reason": "wait",
-            "official_sources": official("https://www.taishinbank.com.tw/gogo")
-            if fut_sources is None
-            else fut_sources,
-        },
-        "explanation": "",
-    }
+    return observed(
+        {
+            "best_now": {"candidate_id": now_id, "reason": "now", "official_sources": official()},
+            "best_future": {
+                "candidate_id": fut_id,
+                "reason": "wait",
+                "official_sources": official("https://www.taishinbank.com.tw/gogo")
+                if fut_sources is None
+                else fut_sources,
+            },
+            "explanation": "",
+        }
+    )
 
 
 async def test_best_future_can_be_a_different_held_card_and_gets_a_draft(session, world):
@@ -497,3 +510,119 @@ async def test_restamp_updates_the_timestamp(session, world):
     await service.mark_verified(session, ["free-uni"], at=datetime(2026, 2, 1, tzinfo=UTC))
     assert (await _stamps(session))["free-uni"] > first
     await service.mark_verified(session, [])  # no-op
+
+
+# --- review findings ------------------------------------------------------
+
+
+async def test_url_never_returned_by_search_cannot_verify(session, world):
+    p = await pre(session, world)
+    fabricated = official("https://www.esunbank.com/made-up/page-the-model-never-opened")
+    raw = _raw()
+    raw["best_now"]["official_sources"] = fabricated  # on-domain, https, but never observed
+    result = service.assemble(p, raw)
+    assert result.best_now.verification_status == "unverified"
+    assert result.best_now.official_sources == []
+    assert service.verified_sale_ids(p, raw) == ["future-gogo"]  # only the observed pick
+
+    # No evidence at all (a runner that reports nothing) verifies nothing.
+    bare = {k: v for k, v in _raw().items() if k != "observed_urls"}
+    assert service.verified_sale_ids(p, bare) == []
+    assert service.assemble(p, bare).wait_suggestion is None
+
+
+async def test_observed_urls_match_despite_trailing_slash_and_fragment(session, world):
+    p = await pre(session, world)
+    raw = _raw()
+    raw["observed_urls"] = [
+        "HTTPS://WWW.esunbank.com/promo/#top",
+        "https://www.taishinbank.com.tw/gogo",
+    ]
+    assert service.assemble(p, raw).best_now.verification_status == "verified"
+
+
+async def test_stream_frees_the_db_transaction_before_the_model_runs(api, session):
+    seen = {}
+
+    async def agent(payload):
+        seen["in_transaction"] = session.in_transaction()
+        return _raw()
+
+    api.app.dependency_overrides[get_recommendation_agent] = lambda: agent
+    await api.post(f"{P}/recommendations/stream", json=REQ)
+    assert seen == {"in_transaction": False}
+
+
+async def test_card_artwork_id_is_passed_through(session, world):
+    uni = (await session.scalars(select(Card).where(Card.name == "Unicard"))).one()
+    uni.artwork_id = "esun-unicard"
+    await session.flush()
+    p = await pre(session, world)
+    assert next(c for c in p.held_cards if c["name"] == "Unicard")["artwork_id"] == "esun-unicard"
+    result = service.assemble(p, _raw())
+    assert result.best_now.card.artwork_id == "esun-unicard"
+    assert result.wait_suggestion.card.artwork_id is None  # card without artwork
+
+
+def test_search_queries_cannot_leak_price_or_spending_text():
+    from app.services.recommendation_agent import screening_inputs
+
+    payload = {
+        "request": {"product_name": "AirPods Pro", "store_name": "momo", "price": 7490},
+        "held_cards": [{"name": "Unicard", "bank_name": "玉山銀行"}],
+        "now_candidates": [
+            {
+                "card": {"name": "Unicard", "bank_name": "玉山銀行"},
+                "title": "指定網購加碼",
+                "conditions": "每月回饋上限 500 點",
+            }
+        ],
+        "future_candidates": [],
+        "spend_context": {
+            "latest_spend_report": "本月最大宗消費是樂天市場的除濕機與定期訂閱，總花費 18,204 元",
+            "recent_analyses": [],
+        },
+    }
+    screen = screening_inputs(payload)
+
+    def problem(q):
+        return query_problem(q, **screen)
+
+    assert problem("AirPods Pro momo Unicard 玉山銀行 指定網購加碼 登錄 2026") is None
+    assert problem("Unicard 每月回饋上限 500 點") is None  # 500 is campaign wording
+    assert "price" in problem("AirPods Pro momo 7490 回饋")
+    assert "price" in problem("AirPods Pro 7,490 元 信用卡")
+    assert "amounts" in problem("Unicard 18204 回饋")
+    assert "spending-summary" in problem("Unicard 樂天市場的除濕機與定期訂閱")
+    assert problem("Unicard 回饋 me@example.com")
+
+
+async def test_search_tool_records_only_urls_it_really_returned(monkeypatch):
+    import duckduckgo_search
+
+    from app.services.recommendation_agent import _make_web_search
+
+    class FakeDDGS:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def text(self, query, max_results=5):
+            return [
+                {"title": "官方", "href": "https://www.esunbank.com/promo", "body": "b"},
+                {"title": "ptt", "href": "https://www.ptt.cc/x", "body": "b"},
+            ]
+
+    monkeypatch.setattr(duckduckgo_search, "DDGS", FakeDDGS)
+    seen: set[str] = set()
+    tool = _make_web_search(
+        {"held_card_names": [], "price": 100, "allowed_terms": (), "context_text": ""}, seen
+    )
+    assert "esunbank" in tool("Unicard 玉山銀行 回饋")
+    assert seen == {"https://www.esunbank.com/promo", "https://www.ptt.cc/x"}
+
+    seen.clear()
+    assert tool("Unicard 100 回饋").startswith("Search refused")
+    assert seen == set()  # refused queries reach nothing

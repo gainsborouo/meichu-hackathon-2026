@@ -151,3 +151,46 @@ async def test_import_fills_campaign_dates_and_leaves_verification_null(session)
     assert dated.official_verified_at is None
     assert dated.source_payload == items[0]
     assert parse_date(None) is None and parse_date("2026-02-30") is None
+
+
+def test_migration_0004_backfills_dates_from_source_payload() -> None:
+    import importlib.util
+    from datetime import date
+
+    import sqlalchemy as sa
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+
+    path = BACKEND / "alembic" / "versions" / "0004_registration_mode_and_sale_dates.py"
+    spec = importlib.util.spec_from_file_location("migration_0004", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    engine = sa.create_engine("sqlite://")
+    meta = sa.MetaData()
+    sales = sa.Table(
+        "sales",
+        meta,
+        sa.Column("id", sa.Text, primary_key=True),
+        sa.Column("source_payload", sa.JSON),
+        sa.Column("campaign_start", sa.Date),
+        sa.Column("campaign_end", sa.Date),
+    )
+    meta.create_all(engine)
+    rows = [
+        ("ok", {"campaign_start": "2025-01-01", "campaign_end": "2025-12-31"}),
+        ("only-end", {"campaign_start": None, "campaign_end": "2026-06-30"}),
+        ("bad", {"campaign_start": "next spring", "campaign_end": "2026-13-45"}),
+        ("none", {}),
+        ("not-a-dict", ["weird"]),
+    ]
+    with engine.begin() as conn:
+        conn.execute(sales.insert(), [{"id": i, "source_payload": p} for i, p in rows])
+        with Operations.context(MigrationContext.configure(conn)):
+            module._backfill_campaign_dates()
+        got = {r.id: (r.campaign_start, r.campaign_end) for r in conn.execute(sales.select())}
+
+    assert got["ok"] == (date(2025, 1, 1), date(2025, 12, 31))
+    assert got["only-end"] == (None, date(2026, 6, 30))
+    assert got["bad"] == (None, None) and got["none"] == (None, None)
+    assert got["not-a-dict"] == (None, None)

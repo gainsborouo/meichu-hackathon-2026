@@ -25,7 +25,8 @@ Reply with one raw JSON object. No code fences.
 - `best_now` is `null` when `now_candidates` is empty or none plainly applies. Then
   `explanation` says why, without recommending anything else.
 - `best_future` is `null` when `future_candidates` is empty or none is worth considering.
-- `official_sources` holds only URLs you actually saw on the bank's own domain. An empty
+- `official_sources` holds only URLs that a `web_search` result showed you on the bank's own
+  domain. The backend discards any URL the search did not return. An empty
   list is valid and correct when you found none.
 - Do not include reward amounts, rates, caps, or dates. The backend attaches its own,
   and any numbers you add are ignored.
@@ -34,7 +35,8 @@ Reply with one raw JSON object. No code fences.
 
 - Attaches rate, cap, estimated reward, registration data from the candidate.
 - Sets `verification_status` to `verified` only if at least one of your
-  `official_sources` is on the bank's official domain; otherwise `unverified`.
+  `official_sources` is on the bank's official domain **and** was returned by the search
+  tool during this run; otherwise `unverified`.
 - Turns `best_future` into `wait_suggestion` only if its estimated reward is higher than
   `best_now`'s, it is verified, and it has an explicit start date. Otherwise
   `wait_suggestion` is `null`, whatever you picked.

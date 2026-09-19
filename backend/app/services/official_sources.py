@@ -46,6 +46,17 @@ def is_official_url(bank_name: str | None, url: str | None) -> bool:
     return any(host == d or host.endswith("." + d) for d in official_domains(bank_name))
 
 
+def normalize_url(url: str) -> str:
+    """Comparable form of a URL: lower-case scheme/host, no fragment, no trailing slash."""
+    try:
+        parsed = urlparse(url.strip())
+    except ValueError:
+        return url.strip()
+    path = parsed.path.rstrip("/")
+    query = f"?{parsed.query}" if parsed.query else ""
+    return f"{parsed.scheme.lower()}://{(parsed.hostname or '').lower()}{path}{query}"
+
+
 def filter_official(bank_name: str | None, sources: list[dict]) -> list[dict]:
     """Keep only {title, url} entries on the bank's own domain, de-duplicated by URL."""
     seen: set[str] = set()

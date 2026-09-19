@@ -36,9 +36,12 @@ def _sse(event: str, data: dict[str, Any]) -> str:
 async def stream_recommendation(
     body: RecommendationRequest, user: CurrentUser, session: SessionDep, agent: AgentDep
 ) -> StreamingResponse:
-    # Reads happen here, before streaming starts. The generator touches the session
-    # only to stamp official_verified_at, and commits that itself.
+    # Reads happen here, before streaming starts. Commit now so the connection goes
+    # back to the pool instead of sitting idle-in-transaction for the whole model run
+    # (up to two minutes). The generator reuses the session only to stamp
+    # official_verified_at, and commits that itself.
     pre = await service.preprocess(session, user, body)
+    await session.commit()
 
     async def events() -> AsyncIterator[str]:
         yield _sse(

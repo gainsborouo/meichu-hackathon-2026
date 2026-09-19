@@ -40,7 +40,7 @@ from app.schemas.recommendations import (
     RecommendationResponse,
     WaitSuggestion,
 )
-from app.services.official_sources import filter_official
+from app.services.official_sources import filter_official, normalize_url
 from app.services.reward_rules import _PLATFORM_ALIASES
 
 TAIPEI = timezone(timedelta(hours=8))
@@ -86,7 +86,12 @@ class Preprocessed:
 
 
 def _card_ref(card) -> dict[str, Any]:
-    return {"id": str(card.id), "bank_name": card.bank_name, "name": card.name}
+    return {
+        "id": str(card.id),
+        "bank_name": card.bank_name,
+        "name": card.name,
+        "artwork_id": card.artwork_id,
+    }
 
 
 def _fmt_rate(rate: float) -> str:
@@ -273,11 +278,27 @@ def _pick(raw: Any, allowed: dict[str, dict], label: str) -> tuple[dict, dict] |
     return candidate, raw
 
 
-def _verified_sources(candidate: dict, raw: dict) -> list[dict]:
-    sources = raw.get("official_sources")
-    return filter_official(
+def _observed(raw: dict[str, Any]) -> set[str]:
+    urls = raw.get("observed_urls")
+    return (
+        {normalize_url(u) for u in urls if isinstance(u, str)} if isinstance(urls, list) else set()
+    )
+
+
+def _verified_sources(candidate: dict, pick: dict, observed: set[str]) -> list[dict]:
+    """Model-claimed official sources that are on the bank's domain AND were actually
+    returned by the search tool during this run.
+
+    The allow-list alone is not enough: a model can write a plausible path on a real
+    bank domain it never opened. `observed_urls` is filled in by the agent runner from
+    the tool's own results, never from model output, so a URL the search did not return
+    cannot verify anything. A runner that supplies no observed_urls verifies nothing.
+    """
+    sources = pick.get("official_sources")
+    official = filter_official(
         candidate["card"]["bank_name"], sources if isinstance(sources, list) else []
     )
+    return [s for s in official if normalize_url(s["url"]) in observed]
 
 
 def _reason(raw: dict) -> str:
@@ -310,6 +331,7 @@ def _wait_suggestion(
     pre: Preprocessed,
     best_now: BestNow | None,
     future_pick: tuple[dict, dict] | None,
+    observed: set[str],
 ) -> WaitSuggestion | None:
     if future_pick is None:
         return None
@@ -317,7 +339,7 @@ def _wait_suggestion(
     start_raw = cand.get("campaign_start")
     if not start_raw or date.fromisoformat(start_raw) <= pre.today:
         return None
-    sources = _verified_sources(cand, raw)
+    sources = _verified_sources(cand, raw, observed)
     if not sources:
         return None
     now_reward = best_now.estimated_reward_twd if best_now else 0.0
@@ -352,10 +374,11 @@ def assemble(pre: Preprocessed, raw: dict[str, Any]) -> RecommendationResponse:
     now_pick = _pick(raw.get("best_now"), now_by_id, "best_now")
     future_pick = _pick(raw.get("best_future"), future_by_id, "best_future")
 
+    observed = _observed(raw)
     best_now: BestNow | None = None
     if now_pick is not None:
         cand, model_raw = now_pick
-        sources = _verified_sources(cand, model_raw)
+        sources = _verified_sources(cand, model_raw, observed)
         best_now = BestNow(
             card=CardRef(**cand["card"]),
             sale_id=cand["sale_id"],
@@ -377,7 +400,7 @@ def assemble(pre: Preprocessed, raw: dict[str, Any]) -> RecommendationResponse:
     return RecommendationResponse(
         mode=pre.mode,  # type: ignore[arg-type]
         best_now=best_now,
-        wait_suggestion=_wait_suggestion(pre, best_now, future_pick),
+        wait_suggestion=_wait_suggestion(pre, best_now, future_pick, observed),
         explanation=explanation,
     )
 
@@ -392,9 +415,14 @@ def verified_sale_ids(pre: Preprocessed, raw: dict[str, Any]) -> list[str]:
             "best_future",
         ),
     )
+    observed = _observed(raw)
     ids: list[str] = []
     for pick in picks:
-        if pick is not None and _verified_sources(*pick) and pick[0]["sale_id"] not in ids:
+        if (
+            pick is not None
+            and _verified_sources(*pick, observed)
+            and pick[0]["sale_id"] not in ids
+        ):
             ids.append(pick[0]["sale_id"])
     return ids
 

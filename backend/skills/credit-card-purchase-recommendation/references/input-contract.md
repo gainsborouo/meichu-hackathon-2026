@@ -30,7 +30,7 @@ One candidate is one reward rule of one campaign for one held card.
 | Field | Meaning |
 |---|---|
 | `candidate_id` | The only handle you may select by. |
-| `card` | `{id, bank_name, name}` of a held card. |
+| `card` | `{id, bank_name, name, artwork_id}` of a held card. |
 | `sale_id`, `title` | The campaign. |
 | `campaign_start`, `campaign_end` | ISO dates or null. Null means the source gave none. |
 | `is_future` | True when `campaign_start` is after today. |

@@ -16,6 +16,7 @@ class CardRef(BaseModel):
     id: uuid.UUID
     bank_name: str | None
     name: str
+    artwork_id: str | None = None
 
 
 class OfficialSource(BaseModel):

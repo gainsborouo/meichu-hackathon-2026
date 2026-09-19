@@ -21,7 +21,7 @@ interface CardRef {
   id: string
   bank_name: string | null
   name: string
-  // Not part of the backend CardRef today; rendered when present.
+  // Optional in the schema; the fallback art is shown when it is missing.
   artwork_id?: string | null
 }
 

@@ -1,6 +1,9 @@
 # Official source policy
 
-A pick is `verified` only when backed by a page on the **issuing bank's own domain**.
+A pick is `verified` only when backed by a page on the **issuing bank's own domain**
+**that your `web_search` calls actually returned**. Citing a plausible URL you did not
+see in search results does not verify anything: the backend compares your
+`official_sources` with the URLs the search tool returned and drops the rest.
 
 ## Accepted
 
@@ -37,7 +40,8 @@ campaigns exist.
 ## Practice
 
 - Search with product / store / card name / bank / campaign terms only. No email, no card
-  list, no spend data.
+  list, no spend data, and no prices or amounts. The search tool refuses such queries
+  (and text copied from the spending summary) instead of sending them.
 - Open the official result and check the campaign is current and matches the candidate's
   `conditions`. If the official page contradicts the candidate, prefer `null` for that pick
   and say so in the reason.

@@ -69,7 +69,9 @@ bank's official site. A query may contain only: product name, store name, candid
 name, bank name, and campaign terms (such as "登錄", "回饋", the campaign title).
 
 Never put in a query: the user's email, the list of cards they hold, spending
-figures, or anything from `spend_context`. Search for one or two picks, not every
+figures, the purchase price, or anything from `spend_context`. The tool enforces this and
+returns "Search refused" for such queries; rephrase with product, store, card and bank
+only. Search for one or two picks, not every
 candidate.
 
 ## Using the spend context
