@@ -4,8 +4,6 @@ services:
   backend:
     build:
       context: ./backend
-    ports:
-      - "${BACKEND_PORT:-8000}:8000"
     env_file:
       - path: ./backend/.env
         required: false
@@ -32,3 +30,26 @@ services:
           path: ./backend/pyproject.toml
         - action: rebuild
           path: ./backend/uv.lock
+
+  caddy:
+    build: ./frontend
+    ports:
+      - "8000:80"
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+
+configs:
+  caddyfile:
+    content: |
+      :80 {
+        @api path /api /api/*
+        handle @api {
+          reverse_proxy backend:8000
+        }
+        handle {
+          root * /srv
+          try_files {path} /index.html
+          file_server
+        }
+      }

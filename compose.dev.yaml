@@ -1,0 +1,42 @@
+name: meichu-hackathon-2026-dev
+
+services:
+  backend:
+    build: ./backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      DEBUG: "${DEBUG:-true}"
+    volumes:
+      - ./backend/app:/app/app
+
+  frontend:
+    image: node:24-alpine
+    working_dir: /app
+    command: sh -c "npm ci && npm run dev -- --host 0.0.0.0"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+  caddy:
+    image: caddy:alpine
+    ports:
+      - "8000:80"
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+
+configs:
+  caddyfile:
+    content: |
+      :80 {
+        @api path /api /api/*
+        handle @api {
+          reverse_proxy backend:8000
+        }
+        handle {
+          reverse_proxy frontend:5173
+        }
+      }
