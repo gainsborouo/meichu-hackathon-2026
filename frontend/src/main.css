@@ -1,1 +1,47 @@
+/* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V5
+ * Hallmark · genre: modern-minimal · macrostructure: Workbench · theme: Cobalt
+ * tone: 技術感、樸素 · anchor hue: cobalt 256 · nav: N9 · footer: Ft2
+ * contrast: pass (40–41) · slop: pass (42–45) · honest: pass (46)
+ * chrome: pass (47) · tokens: pass (48) · responsive: pass (49)
+ * icons: pass (30) · mobile: pass (34, 49, 50–57)
+ */
+@import '../tokens.css';
 @import 'tailwindcss';
+
+html,
+body {
+  min-width: 20rem;
+  min-height: 100%;
+  overflow-x: clip;
+}
+
+body {
+  margin: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:not(:disabled),
+a {
+  cursor: pointer;
+}
+
+::selection {
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+}

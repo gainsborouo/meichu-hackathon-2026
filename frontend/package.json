@@ -20,6 +20,7 @@
     "format:check": "prettier --check --experimental-cli src/"
   },
   "dependencies": {
+    "@lucide/vue": "^1.47.0",
     "vue": "^3.5.42",
     "vue-router": "^5.3.1"
   },

@@ -1,0 +1,75 @@
+:root {
+  --color-paper: oklch(98.5% 0.004 250);
+  --color-paper-2: oklch(96% 0.006 250);
+  --color-paper-3: oklch(92% 0.008 250);
+  --color-ink: oklch(24% 0.02 258);
+  --color-ink-2: oklch(34% 0.018 257);
+  --color-muted: oklch(46% 0.016 256);
+  --color-rule: oklch(84% 0.01 252);
+  --color-rule-strong: oklch(62% 0.016 255);
+  --color-accent: oklch(52% 0.2 256);
+  --color-accent-hover: oklch(46% 0.19 256);
+  --color-accent-light: oklch(75% 0.13 252);
+  --color-accent-ink: oklch(98.5% 0.004 250);
+  --color-focus: oklch(48% 0.21 256);
+  --color-focus-dark: oklch(81% 0.14 250);
+  --color-graphite: oklch(20% 0.016 260);
+  --color-graphite-raised: oklch(25% 0.018 260);
+  --color-graphite-raised-2: oklch(29% 0.019 260);
+  --color-graphite-rule: oklch(34% 0.018 260);
+  --color-graphite-rule-strong: oklch(54% 0.018 258);
+  --color-graphite-ink: oklch(95% 0.008 250);
+  --color-graphite-muted: oklch(75% 0.012 252);
+  --color-error: oklch(57% 0.19 25);
+  --color-error-light: oklch(78% 0.12 25);
+  --color-error-focus: oklch(75% 0.15 25);
+  --color-success: oklch(48% 0.13 155);
+
+  --font-display: 'Space Grotesk', 'Noto Sans TC', sans-serif;
+  --font-body: 'Inter', 'Noto Sans TC', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+  --space-2xl: 4rem;
+  --space-3xl: 6rem;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-md: 1.125rem;
+  --text-lg: 1.5rem;
+  --text-display: clamp(2.75rem, 5vw + 0.5rem, 4.75rem);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 200ms;
+  --dur-long: 420ms;
+  --dur-reduced: 100ms;
+
+  --rule-hairline: 0.0625rem;
+  --rule-focus: 0.125rem;
+  --radius-control: 0.375rem;
+  --radius-panel: 0.625rem;
+  --control-height: 2.75rem;
+  --input-height: 3.5rem;
+  --topbar-height: 4.5rem;
+  --layout-max: 76rem;
+  --shadow-panel: 0 0.0625rem 0.125rem oklch(20% 0.016 260 / 0.08);
+}
+
+@theme inline {
+  --color-canvas: var(--color-paper);
+  --color-signal: var(--color-accent);
+  --color-panel: var(--color-graphite);
+  --font-heading: var(--font-display);
+  --font-interface: var(--font-body);
+  --font-code: var(--font-mono);
+}
