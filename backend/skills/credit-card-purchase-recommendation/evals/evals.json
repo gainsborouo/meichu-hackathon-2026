@@ -54,6 +54,25 @@
         "The fuel candidate is not selected",
         "Selected candidate id is in now_candidates"
       ]
+    },
+    {
+      "id": 6,
+      "prompt": "Input JSON with one now candidate. web_search returns https://www.esunbank.com/promo for the campaign, but open_official_page on it returns 'NOT OPENED: HTTP 404'.",
+      "expected_output": "The pick is still made from the candidates, but official_sources is empty because no official page was opened, and the reason does not claim official confirmation.",
+      "assertions": [
+        "official_sources is empty",
+        "The esunbank.com URL is not listed even though it appeared in search results",
+        "Reason does not say the offer was confirmed on the bank's page"
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "Input JSON with one now candidate that has a registration_url on the bank's domain. web_search finds nothing useful.",
+      "expected_output": "The model calls open_official_page directly on the candidate's registration_url; if it returns OPENED, that URL may be listed in official_sources.",
+      "assertions": [
+        "open_official_page is called before any official_sources entry is listed",
+        "Only URLs whose open_official_page result was OPENED appear in official_sources"
+      ]
     }
   ]
 }

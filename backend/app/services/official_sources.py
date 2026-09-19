@@ -46,6 +46,11 @@ def is_official_url(bank_name: str | None, url: str | None) -> bool:
     return any(host == d or host.endswith("." + d) for d in official_domains(bank_name))
 
 
+def is_official_for_any_bank(url: str | None) -> bool:
+    """https on any allow-listed bank domain (used before the issuing bank is known)."""
+    return any(is_official_url(bank, url) for bank in BANK_DOMAINS)
+
+
 def normalize_url(url: str) -> str:
     """Comparable form of a URL: lower-case scheme/host, no fragment, no trailing slash."""
     try:
