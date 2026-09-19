@@ -147,6 +147,9 @@ async def test_targets_come_from_crawler_enabled_catalog_cards(session, catalog)
         "fubon-costco",
         "fubon-j",
         "fubon-momo",
+        "taishin-richart",
+        "taishin-pxmart",
+        "esun-pi-card",
     }
     linepay = next(t for t in targets if t.card_key == "ctbc-linepay")
     assert (linepay.bank, linepay.card) == ("中國信託銀行", "LINE Pay 聯名卡")  # search wording
@@ -157,7 +160,7 @@ def test_without_a_database_the_identity_file_supplies_the_same_targets(news, mo
 
     monkeypatch.setattr(config, "get_settings", lambda: type("S", (), {"database_url": None})())
     targets = asyncio.run(news.load_targets())
-    assert "ctbc-linepay" in {t.card_key for t in targets} and len(targets) == 7
+    assert "ctbc-linepay" in {t.card_key for t in targets} and len(targets) == 10
 
 
 # --- running ---------------------------------------------------------------------------

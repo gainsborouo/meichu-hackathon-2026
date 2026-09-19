@@ -21,11 +21,11 @@ fubon-braves-guardians,fubon-braves-guardians,false,,,
 fubon-howard,fubon-howard,false,,,
 fubon-everrich,fubon-everrich,false,,,
 taishin-gogoro,taishin-gogoro,false,,,
-taishin-richart,taishin-richart,false,,,
+taishin-richart,taishin-richart,true,台新銀行,Richart 信用卡,台新銀行::Richart 信用卡||台新銀行::Richart卡
 taishin-excellence,taishin-excellence,false,,,
 taishin-dual-currency,taishin-dual-currency,false,,,
 taishin-cathaypacific,taishin-cathaypacific,false,,,
-taishin-pxmart,taishin-pxmart,false,,,
+taishin-pxmart,taishin-pxmart,true,台新銀行,大全聯信用卡,台新銀行::大全聯信用卡
 taishin-skmp,taishin-skmp,false,,,
 taishin-everrich,taishin-everrich,false,,,
 taishin-jkopay,taishin-jkopay,false,,,
@@ -40,7 +40,7 @@ hsbc-travel-infinite,hsbc-travel-infinite,false,,,
 hsbc-travel-one,hsbc-travel-one,false,,,
 hsbc-cashback-signature,hsbc-cashback-signature,false,,,
 hsbc-cashback-business-titanium,hsbc-cashback-business-titanium,false,,,
-esun-pi-card,esun-pi-card,false,,,
+esun-pi-card,esun-pi-card,true,玉山銀行,Pi 拍錢包信用卡,玉山銀行::Pi 拍錢包信用卡||玉山銀行::Pi拍錢包信用卡
 esun-ubear-pink,esun-ubear,true,玉山銀行,U Bear 信用卡,玉山銀行::U Bear 信用卡
 esun-eztravel,esun-eztravel,false,,,
 esun-starlux-world-elite,esun-starlux-world-elite,false,,,
