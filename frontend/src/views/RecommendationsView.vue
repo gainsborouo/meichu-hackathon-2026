@@ -5,74 +5,86 @@ import { storeToRefs } from 'pinia'
 import { useRoute, useRouter, type LocationQueryValue } from 'vue-router'
 
 import SiteHeader from '../components/SiteHeader.vue'
-import { api } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
 
-interface SearchRequest {
+const STREAM_URL = '/api/v1/recommendations/stream'
+
+// Mirrors backend/app/schemas/recommendations.py.
+interface RecommendationRequest {
+  product_name: string
+  store_name: string
   price: number
-  platform: string
-  category: string
   currency: 'TWD'
-  include_unowned: boolean
 }
 
-interface CardSummary {
+interface CardRef {
   id: string
   bank_name: string | null
   name: string
-  artwork_id: string | null
-  display_name: string | null
-  issuer_en: string | null
-  variant: string | null
-  network: string | null
-  tier: string | null
-  official_image_url: string | null
-  image_is_composite: boolean | null
+  // Not part of the backend CardRef today; rendered when present.
+  artwork_id?: string | null
 }
 
-interface EstimatedReward {
-  amount: number
-  rate: number
-  rate_max: number
-  currency: string
-  unit: string
-  capped: boolean
-  requires_registration: boolean
-  source_text: string
-}
-
-interface MatchedSale {
-  id: string
-  card_id: string
-  bank_name: string
-  card_name: string
+interface OfficialSource {
   title: string
-  reward: string
-  conditions: string
-  campaign_period: string
-  register_url: string
-  source_url: string
-  evidence: string
+  url: string
 }
 
-interface Recommendation {
-  user_card_id: string
-  owned: boolean
-  card: CardSummary
-  estimated_reward: EstimatedReward
-  matched_sales: MatchedSale[]
+interface BestNow {
+  card: CardRef
+  sale_id: string
+  campaign_title: string
+  estimated_reward_twd: number
+  rate_display: string
+  cap_description: string | null
+  requires_registration: boolean
+  registration_url: string | null
   reason: string
+  verification_status: 'verified' | 'unverified'
+  official_sources: OfficialSource[]
 }
 
-interface SearchResponse {
-  query: SearchRequest
-  resolved_category: string
-  best: Recommendation
-  alternatives: Recommendation[]
-  considered_card_count: number
+interface CalendarDraft {
+  title: string
+  starts_at: string
+  notes: string
 }
 
-type SearchState = 'idle' | 'loading' | 'success' | 'error'
+interface WaitSuggestion {
+  recommended: true
+  card: CardRef
+  sale_id: string
+  starts_at: string
+  estimated_reward_twd: number
+  estimated_extra_reward_twd: number
+  reason: string
+  official_sources: OfficialSource[]
+  calendar_draft: CalendarDraft
+}
+
+interface RecommendationResponse {
+  mode: 'no_registration' | 'registration'
+  best_now: BestNow | null
+  wait_suggestion: WaitSuggestion | null
+  explanation: string | null
+}
+
+interface SseEvent {
+  event: string
+  data: string
+}
+
+type SearchState = 'idle' | 'loading' | 'success' | 'error' | 'unauthenticated'
+
+class StreamFailure extends Error {}
+
+const GENERIC_ERROR = '無法取得信用卡推薦，請稍後再試。'
+const LOGIN_REQUIRED = '請先登入 Google 帳號，才能取得信用卡推薦。'
+const DEFAULT_PROGRESS = '系統正在比對持卡資料與優惠活動，請稍候。'
+const STAGE_PROGRESS: Record<string, string> = {
+  preprocessing: '正在整理您的持卡資料與優惠活動…',
+  official_verification: '正在核對銀行官方活動…',
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -86,19 +98,20 @@ const platformError = ref('')
 const amountError = ref('')
 const categoryError = ref('')
 const searchState = ref<SearchState>('idle')
-const searchResult = ref<SearchResponse | null>(null)
+const searchResult = ref<RecommendationResponse | null>(null)
 const requestError = ref('')
+const progressMessage = ref(DEFAULT_PROGRESS)
 const failedImageIds = ref(new Set<string>())
 let activeController: AbortController | null = null
 
 const formattedAmount = computed(() => amount.value.replace(/\B(?=(\d{3})+(?!\d))/g, ','))
 
-const rankedRecommendations = computed(() => {
-  if (!searchResult.value) return []
+const modeNotice = computed(() => {
+  if (!searchResult.value) return ''
 
-  return [searchResult.value.best, ...searchResult.value.alternatives].map(
-    (recommendation, index) => ({ rank: index + 1, recommendation }),
-  )
+  return searchResult.value.mode === 'registration'
+    ? '依您的設定，僅列出需要登錄的優惠。'
+    : '依您的設定，僅列出不需登錄的優惠。'
 })
 
 function queryString(value: LocationQueryValue | LocationQueryValue[] | undefined) {
@@ -156,38 +169,181 @@ function handleCategoryInput() {
   if (category.value.trim()) categoryError.value = ''
 }
 
+function parseSseBlock(block: string): SseEvent | null {
+  let event = 'message'
+  const data: string[] = []
+
+  for (const line of block.split('\n')) {
+    if (!line || line.startsWith(':')) continue
+
+    const separator = line.indexOf(':')
+    const field = separator === -1 ? line : line.slice(0, separator)
+    let value = separator === -1 ? '' : line.slice(separator + 1)
+    if (value.startsWith(' ')) value = value.slice(1)
+
+    if (field === 'event') event = value
+    else if (field === 'data') data.push(value)
+  }
+
+  return data.length ? { event, data: data.join('\n') } : null
+}
+
+// Events are separated by a blank line and may be split across network chunks,
+// so bytes are buffered until a complete event is available.
+async function readSseStream(
+  body: ReadableStream<Uint8Array>,
+  signal: AbortSignal,
+  onEvent: (event: SseEvent) => void,
+) {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  const cancel = () => void reader.cancel().catch(() => undefined)
+  signal.addEventListener('abort', cancel, { once: true })
+  let buffer = ''
+
+  const drain = (final: boolean) => {
+    buffer = buffer.replace(/\r\n?/g, '\n')
+    let boundary = buffer.indexOf('\n\n')
+
+    while (boundary !== -1) {
+      const parsed = parseSseBlock(buffer.slice(0, boundary))
+      buffer = buffer.slice(boundary + 2)
+      if (parsed) onEvent(parsed)
+      boundary = buffer.indexOf('\n\n')
+    }
+
+    if (final && buffer.trim()) {
+      const parsed = parseSseBlock(buffer)
+      buffer = ''
+      if (parsed) onEvent(parsed)
+    }
+  }
+
+  try {
+    while (!signal.aborted) {
+      const { done, value } = await reader.read()
+      if (signal.aborted) return
+
+      if (value) buffer += decoder.decode(value, { stream: !done })
+      if (done) {
+        buffer += decoder.decode()
+        drain(true)
+        return
+      }
+      drain(false)
+    }
+  } finally {
+    signal.removeEventListener('abort', cancel)
+  }
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function parsePayload(data: string): Record<string, unknown> {
+  try {
+    const payload: unknown = JSON.parse(data)
+    if (isObject(payload)) return payload
+  } catch {
+    // fall through to the failure below
+  }
+
+  throw new StreamFailure('malformed SSE payload')
+}
+
+function parseRecommendation(data: string): RecommendationResponse {
+  const payload = parsePayload(data)
+
+  if (
+    (payload.mode !== 'no_registration' && payload.mode !== 'registration') ||
+    !('best_now' in payload) ||
+    !('wait_suggestion' in payload)
+  ) {
+    throw new StreamFailure('unexpected recommendation payload')
+  }
+
+  return payload as unknown as RecommendationResponse
+}
+
 async function loadRecommendations() {
   if (!authReady.value || !validateSearch()) return
 
   activeController?.abort()
   const controller = new AbortController()
   activeController = controller
-  searchState.value = 'loading'
+  const isCurrent = () => activeController === controller && !controller.signal.aborted
+
   searchResult.value = null
   requestError.value = ''
+  progressMessage.value = DEFAULT_PROGRESS
 
-  const request: SearchRequest = {
+  const user = authUser.value
+  if (!user) {
+    activeController = null
+    searchState.value = 'unauthenticated'
+    return
+  }
+
+  searchState.value = 'loading'
+
+  const request: RecommendationRequest = {
+    product_name: category.value.trim(),
+    store_name: platform.value.trim(),
     price: Number(amount.value),
-    platform: platform.value.trim(),
-    category: category.value.trim(),
     currency: 'TWD',
-    include_unowned: !authUser.value,
   }
 
   try {
-    const response = await api.post<SearchResponse>('/search', request, {
+    const token = await user.getIdToken()
+    if (!isCurrent()) return
+
+    const response = await fetch(STREAM_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(request),
       signal: controller.signal,
     })
+    if (!isCurrent()) return
 
-    if (controller.signal.aborted) return
+    if (!response.ok) {
+      throw new StreamFailure(response.status === 401 ? LOGIN_REQUIRED : GENERIC_ERROR)
+    }
+    if (!response.body) throw new StreamFailure(GENERIC_ERROR)
 
-    searchResult.value = response.data
-    searchState.value = 'success'
-  } catch {
-    if (controller.signal.aborted) return
+    let received = false
 
+    await readSseStream(response.body, controller.signal, (event) => {
+      if (!isCurrent()) return
+
+      if (event.event === 'searching') {
+        const stage = parsePayload(event.data).stage
+        progressMessage.value =
+          (typeof stage === 'string' && STAGE_PROGRESS[stage]) || DEFAULT_PROGRESS
+      } else if (event.event === 'recommendation') {
+        searchResult.value = parseRecommendation(event.data)
+        searchState.value = 'success'
+        received = true
+      } else if (event.event === 'error') {
+        if (!received) throw new StreamFailure(GENERIC_ERROR)
+      }
+    })
+
+    if (!isCurrent()) return
+    if (!received) throw new StreamFailure(GENERIC_ERROR)
+  } catch (error) {
+    if (!isCurrent()) return
+
+    searchResult.value = null
     searchState.value = 'error'
-    requestError.value = '無法取得信用卡推薦，請稍後再試。'
+    requestError.value =
+      error instanceof StreamFailure && error.message === LOGIN_REQUIRED
+        ? LOGIN_REQUIRED
+        : GENERIC_ERROR
   } finally {
     if (activeController === controller) activeController = null
   }
@@ -223,44 +379,53 @@ function prepareRouteSearch() {
 
   if (!authReady.value) {
     searchState.value = 'loading'
+    progressMessage.value = DEFAULT_PROGRESS
     return
   }
 
   void loadRecommendations()
 }
 
-function formatCurrency(reward: EstimatedReward) {
-  try {
-    return new Intl.NumberFormat('zh-TW', {
-      style: 'currency',
-      currency: reward.currency,
-      maximumFractionDigits: 2,
-    }).format(reward.amount)
-  } catch {
-    return `${reward.amount.toLocaleString('zh-TW')} ${reward.currency}`.trim()
-  }
-}
-
-const percentFormatter = new Intl.NumberFormat('zh-TW', {
-  style: 'percent',
+const twdFormatter = new Intl.NumberFormat('zh-TW', {
+  style: 'currency',
+  currency: 'TWD',
   maximumFractionDigits: 2,
 })
 
-function formatRate(reward: EstimatedReward) {
-  const rate = percentFormatter.format(reward.rate)
-
-  return reward.rate_max > reward.rate
-    ? `${rate}–${percentFormatter.format(reward.rate_max)}`
-    : rate
+function formatTwd(amountTwd: number) {
+  return twdFormatter.format(amountTwd)
 }
 
-function safeExternalUrl(value: string) {
+function formatDate(value: string) {
+  return value.replace(/-/g, '/')
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+
+  return new Intl.DateTimeFormat('zh-TW', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'Asia/Taipei',
+  }).format(date)
+}
+
+function safeExternalUrl(value: string | null | undefined) {
+  if (!value) return ''
+
   try {
     const url = new URL(value)
     return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : ''
   } catch {
     return ''
   }
+}
+
+function safeSources(sources: OfficialSource[]) {
+  return sources
+    .map((source) => ({ title: source.title, href: safeExternalUrl(source.url) }))
+    .filter((source) => source.href)
 }
 
 function markImageFailed(artworkId: string) {
@@ -282,8 +447,8 @@ onBeforeUnmount(() => activeController?.abort())
       <header class="page-intro">
         <div>
           <p class="page-intro__eyebrow">信用卡推薦</p>
-          <h1>這筆消費的刷卡排名</h1>
-          <p>調整消費條件後，可直接重新計算推薦結果。</p>
+          <h1>這筆消費該刷哪張卡</h1>
+          <p>調整消費條件後，可直接重新取得推薦結果。</p>
         </div>
       </header>
 
@@ -377,7 +542,15 @@ onBeforeUnmount(() => activeController?.abort())
         <LoaderCircle class="state-panel__spinner" :size="34" aria-hidden="true" />
         <div>
           <h2>正在計算信用卡推薦</h2>
-          <p>系統正在比對持卡資料與優惠活動，請稍候。</p>
+          <p>{{ progressMessage }}</p>
+        </div>
+      </section>
+
+      <section v-else-if="searchState === 'unauthenticated'" class="state-panel state-panel--error">
+        <TriangleAlert :size="30" aria-hidden="true" />
+        <div>
+          <h2 role="alert">{{ LOGIN_REQUIRED }}</h2>
+          <p>登入後才能依據您持有的信用卡計算推薦，搜尋條件已保留。</p>
         </div>
       </section>
 
@@ -391,37 +564,36 @@ onBeforeUnmount(() => activeController?.abort())
       </section>
 
       <section
-        v-else-if="searchState === 'success'"
+        v-else-if="searchState === 'success' && searchResult"
         class="ranking-section"
         aria-labelledby="ranking-title"
       >
         <header class="ranking-heading">
           <div>
             <p>推薦結果</p>
-            <h2 id="ranking-title">信用卡排名</h2>
+            <h2 id="ranking-title">目前最適合的信用卡</h2>
           </div>
-          <span>{{ rankedRecommendations.length }} 張</span>
+          <span>{{ modeNotice }}</span>
         </header>
 
         <div class="ranking-list">
           <article
-            v-for="item in rankedRecommendations"
-            :key="`${item.recommendation.card.id}-${item.rank}`"
-            class="recommendation-card"
-            :class="{ 'recommendation-card--best': item.rank === 1 }"
+            v-if="searchResult.best_now"
+            class="recommendation-card recommendation-card--best"
+            data-testid="best-now"
           >
             <div class="recommendation-card__header">
               <div class="card-art">
                 <img
                   v-if="
-                    item.recommendation.card.artwork_id &&
-                    !failedImageIds.has(item.recommendation.card.artwork_id)
+                    searchResult.best_now.card.artwork_id &&
+                    !failedImageIds.has(searchResult.best_now.card.artwork_id)
                   "
-                  :src="`/card-art/${item.recommendation.card.artwork_id}.webp`"
-                  :alt="`${item.recommendation.card.bank_name ?? ''}${item.recommendation.card.name}卡面`"
+                  :src="`/card-art/${searchResult.best_now.card.artwork_id}.webp`"
+                  :alt="`${searchResult.best_now.card.bank_name ?? ''}${searchResult.best_now.card.name}卡面`"
                   width="640"
                   height="400"
-                  @error="markImageFailed(item.recommendation.card.artwork_id)"
+                  @error="markImageFailed(searchResult.best_now.card.artwork_id)"
                 />
                 <div v-else class="card-art__fallback">
                   <CreditCard :size="38" :stroke-width="1.5" aria-hidden="true" />
@@ -431,100 +603,160 @@ onBeforeUnmount(() => activeController?.abort())
 
               <div class="card-identity">
                 <div class="card-badges">
-                  <span class="rank-badge">第 {{ item.rank }} 名</span>
-                  <span v-if="item.rank === 1" class="best-badge">首選</span>
-                  <span class="owned-badge">
-                    {{ item.recommendation.owned ? '已持有' : '尚未持有' }}
+                  <span class="best-badge">目前最佳</span>
+                  <span
+                    class="verification-badge"
+                    :class="`verification-badge--${searchResult.best_now.verification_status}`"
+                  >
+                    {{
+                      searchResult.best_now.verification_status === 'verified'
+                        ? '已查證官方來源'
+                        : '尚未查證官方來源'
+                    }}
                   </span>
                 </div>
-                <h3>{{ item.recommendation.card.name }}</h3>
-                <p>{{ item.recommendation.card.bank_name }}</p>
+                <h3>{{ searchResult.best_now.card.name }}</h3>
+                <p>{{ searchResult.best_now.card.bank_name }}</p>
               </div>
 
               <div class="reward-summary">
                 <span>預估回饋</span>
-                <strong>{{ formatCurrency(item.recommendation.estimated_reward) }}</strong>
-                <span>{{ formatRate(item.recommendation.estimated_reward) }}</span>
+                <strong>{{ formatTwd(searchResult.best_now.estimated_reward_twd) }}</strong>
+                <span>回饋率 {{ searchResult.best_now.rate_display }}</span>
               </div>
             </div>
 
             <div class="recommendation-card__body">
-              <p class="recommendation-reason">{{ item.recommendation.reason }}</p>
+              <p class="recommendation-reason">{{ searchResult.best_now.reason }}</p>
 
-              <div
-                v-if="
-                  item.recommendation.estimated_reward.source_text ||
-                  item.recommendation.estimated_reward.unit ||
-                  item.recommendation.estimated_reward.capped ||
-                  item.recommendation.estimated_reward.requires_registration
-                "
-                class="reward-meta"
-              >
-                <p v-if="item.recommendation.estimated_reward.source_text">
-                  {{ item.recommendation.estimated_reward.source_text }}
-                </p>
+              <div class="reward-meta">
+                <p>活動：{{ searchResult.best_now.campaign_title }}</p>
                 <div class="reward-flags">
-                  <span v-if="item.recommendation.estimated_reward.unit">
-                    {{ item.recommendation.estimated_reward.unit }}
+                  <span v-if="searchResult.best_now.cap_description">
+                    {{ searchResult.best_now.cap_description }}
                   </span>
-                  <span v-if="item.recommendation.estimated_reward.capped">回饋有上限</span>
-                  <span v-if="item.recommendation.estimated_reward.requires_registration">
-                    需要登錄
+                  <span>
+                    {{ searchResult.best_now.requires_registration ? '需要登錄' : '不需登錄' }}
                   </span>
                 </div>
               </div>
 
-              <details v-if="item.recommendation.matched_sales.length" class="matched-sales">
-                <summary>
-                  查看符合的優惠活動（{{ item.recommendation.matched_sales.length }}）
-                </summary>
-                <div class="matched-sales__list">
-                  <article
-                    v-for="(sale, saleIndex) in item.recommendation.matched_sales"
-                    :key="`${sale.id}-${saleIndex}`"
-                    class="sale"
-                  >
-                    <header>
-                      <h4>{{ sale.title }}</h4>
-                      <strong>{{ sale.reward }}</strong>
-                    </header>
-                    <dl>
-                      <template v-if="sale.conditions">
-                        <dt>活動條件</dt>
-                        <dd>{{ sale.conditions }}</dd>
-                      </template>
-                      <template v-if="sale.campaign_period">
-                        <dt>活動期間</dt>
-                        <dd>{{ sale.campaign_period }}</dd>
-                      </template>
-                      <template v-if="sale.evidence">
-                        <dt>活動依據</dt>
-                        <dd>{{ sale.evidence }}</dd>
-                      </template>
-                    </dl>
-                    <div class="sale__links">
-                      <a
-                        v-if="safeExternalUrl(sale.register_url)"
-                        :href="safeExternalUrl(sale.register_url)"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        前往登錄
-                        <ExternalLink :size="15" aria-hidden="true" />
-                      </a>
-                      <a
-                        v-if="safeExternalUrl(sale.source_url)"
-                        :href="safeExternalUrl(sale.source_url)"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        查看來源
-                        <ExternalLink :size="15" aria-hidden="true" />
-                      </a>
-                    </div>
-                  </article>
+              <div
+                v-if="
+                  safeExternalUrl(searchResult.best_now.registration_url) ||
+                  safeSources(searchResult.best_now.official_sources).length
+                "
+                class="source-links"
+              >
+                <a
+                  v-if="safeExternalUrl(searchResult.best_now.registration_url)"
+                  :href="safeExternalUrl(searchResult.best_now.registration_url)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  前往登錄
+                  <ExternalLink :size="15" aria-hidden="true" />
+                </a>
+                <a
+                  v-for="source in safeSources(searchResult.best_now.official_sources)"
+                  :key="source.href"
+                  :href="source.href"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {{ source.title }}
+                  <ExternalLink :size="15" aria-hidden="true" />
+                </a>
+              </div>
+            </div>
+          </article>
+
+          <section v-else class="state-panel" data-testid="no-best-now">
+            <CreditCard :size="30" aria-hidden="true" />
+            <div>
+              <h2>目前沒有適用的優惠</h2>
+              <p>{{ searchResult.explanation ?? '持有的信用卡目前沒有符合此消費條件的優惠。' }}</p>
+            </div>
+          </section>
+
+          <article
+            v-if="searchResult.wait_suggestion"
+            class="recommendation-card wait-card"
+            data-testid="wait-suggestion"
+            aria-labelledby="wait-title"
+          >
+            <div class="recommendation-card__header">
+              <div class="card-art">
+                <img
+                  v-if="
+                    searchResult.wait_suggestion.card.artwork_id &&
+                    !failedImageIds.has(searchResult.wait_suggestion.card.artwork_id)
+                  "
+                  :src="`/card-art/${searchResult.wait_suggestion.card.artwork_id}.webp`"
+                  :alt="`${searchResult.wait_suggestion.card.bank_name ?? ''}${searchResult.wait_suggestion.card.name}卡面`"
+                  width="640"
+                  height="400"
+                  @error="markImageFailed(searchResult.wait_suggestion.card.artwork_id)"
+                />
+                <div v-else class="card-art__fallback">
+                  <CreditCard :size="38" :stroke-width="1.5" aria-hidden="true" />
+                  <span>無卡面圖片</span>
                 </div>
-              </details>
+              </div>
+
+              <div class="card-identity">
+                <div class="card-badges">
+                  <span class="wait-badge">等待活動</span>
+                </div>
+                <h3 id="wait-title">{{ searchResult.wait_suggestion.card.name }}</h3>
+                <p>{{ searchResult.wait_suggestion.card.bank_name }}</p>
+              </div>
+
+              <div class="reward-summary">
+                <span>預估回饋</span>
+                <strong>{{ formatTwd(searchResult.wait_suggestion.estimated_reward_twd) }}</strong>
+                <span>
+                  比現在多 {{ formatTwd(searchResult.wait_suggestion.estimated_extra_reward_twd) }}
+                </span>
+              </div>
+            </div>
+
+            <div class="recommendation-card__body">
+              <dl class="wait-facts">
+                <dt>活動開始日</dt>
+                <dd>{{ formatDate(searchResult.wait_suggestion.starts_at) }}</dd>
+              </dl>
+              <p class="recommendation-reason">{{ searchResult.wait_suggestion.reason }}</p>
+
+              <div
+                v-if="safeSources(searchResult.wait_suggestion.official_sources).length"
+                class="source-links"
+              >
+                <a
+                  v-for="source in safeSources(searchResult.wait_suggestion.official_sources)"
+                  :key="source.href"
+                  :href="source.href"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {{ source.title }}
+                  <ExternalLink :size="15" aria-hidden="true" />
+                </a>
+              </div>
+
+              <div class="calendar-draft" data-testid="calendar-draft">
+                <h4>行事曆草稿</h4>
+                <p class="calendar-draft__title">
+                  {{ searchResult.wait_suggestion.calendar_draft.title }}
+                </p>
+                <p class="calendar-draft__time">
+                  {{ formatDateTime(searchResult.wait_suggestion.calendar_draft.starts_at) }}
+                </p>
+                <p class="calendar-draft__notes">
+                  {{ searchResult.wait_suggestion.calendar_draft.notes }}
+                </p>
+                <p class="calendar-draft__hint">這只是草稿，尚未建立任何行事曆事件。</p>
+              </div>
             </div>
           </article>
         </div>
@@ -575,8 +807,6 @@ onBeforeUnmount(() => activeController?.abort())
 .card-identity p,
 .recommendation-reason,
 .reward-meta p,
-.sale h4,
-.sale dl,
 .page-footer {
   margin: 0;
 }
@@ -691,8 +921,7 @@ onBeforeUnmount(() => activeController?.abort())
 
 .query-submit:focus-visible,
 .state-panel button:focus-visible,
-.matched-sales summary:focus-visible,
-.sale__links a:focus-visible {
+.source-links a:focus-visible {
   outline-color: var(--color-focus);
 }
 
@@ -808,8 +1037,7 @@ onBeforeUnmount(() => activeController?.abort())
 }
 
 .card-badges,
-.reward-flags,
-.sale__links {
+.reward-flags {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-xs);
@@ -825,8 +1053,8 @@ onBeforeUnmount(() => activeController?.abort())
   font-weight: 700;
 }
 
-.card-badges .rank-badge,
-.card-badges .best-badge {
+.card-badges .best-badge,
+.card-badges .verification-badge--verified {
   border-color: var(--color-accent);
   color: var(--color-accent);
 }
@@ -889,69 +1117,13 @@ onBeforeUnmount(() => activeController?.abort())
   line-height: 1.6;
 }
 
-.matched-sales {
-  border-top: var(--rule-hairline) solid var(--color-rule);
-  padding-block-start: var(--space-md);
-}
-
-.matched-sales summary {
-  width: fit-content;
-  border-radius: var(--radius-control);
-  outline: var(--rule-focus) solid transparent;
-  outline-offset: var(--rule-focus);
-  color: var(--color-accent);
-  font-weight: 700;
-}
-
-.matched-sales__list {
-  display: grid;
-  gap: var(--space-md);
-  margin-block-start: var(--space-md);
-}
-
-.sale {
-  display: grid;
-  gap: var(--space-sm);
-  border-left: var(--rule-focus) solid var(--color-accent);
-  padding-inline-start: var(--space-md);
-}
-
-.sale header {
+.source-links {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-md);
-}
-
-.sale h4 {
-  font-size: var(--text-base);
-}
-
-.sale header strong {
-  flex: 0 0 auto;
-  color: var(--color-accent);
-}
-
-.sale dl {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
+  flex-wrap: wrap;
   gap: var(--space-xs) var(--space-md);
-  color: var(--color-ink-2);
-  font-size: var(--text-sm);
 }
 
-.sale dt {
-  color: var(--color-muted);
-  font-weight: 700;
-}
-
-.sale dd {
-  min-width: 0;
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.sale__links a {
+.source-links a {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2xs);
@@ -962,6 +1134,64 @@ onBeforeUnmount(() => activeController?.abort())
   font-size: var(--text-sm);
   font-weight: 700;
   text-underline-offset: 0.2em;
+}
+
+.verification-badge--unverified {
+  color: var(--color-muted);
+}
+
+.wait-card {
+  border-style: dashed;
+}
+
+.wait-card .card-badges .wait-badge {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.wait-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-xs) var(--space-md);
+  margin: 0;
+  color: var(--color-ink-2);
+  font-size: var(--text-sm);
+}
+
+.wait-facts dt {
+  color: var(--color-muted);
+  font-weight: 700;
+}
+
+.wait-facts dd {
+  margin: 0;
+}
+
+.calendar-draft {
+  display: grid;
+  gap: var(--space-xs);
+  border-left: var(--rule-focus) solid var(--color-accent);
+  padding-inline-start: var(--space-md);
+  color: var(--color-ink-2);
+  font-size: var(--text-sm);
+}
+
+.calendar-draft h4,
+.calendar-draft p {
+  margin: 0;
+}
+
+.calendar-draft__title {
+  font-weight: 700;
+}
+
+.calendar-draft__notes {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.calendar-draft__hint {
+  color: var(--color-muted);
 }
 
 .page-footer {
