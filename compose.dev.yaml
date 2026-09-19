@@ -9,8 +9,12 @@ services:
         required: false
     environment:
       DEBUG: "${DEBUG:-true}"
+      DATABASE_URL: "${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-app}}"
     volumes:
       - ./backend/app:/app/app
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   frontend:
     image: node:24-alpine
@@ -20,6 +24,23 @@ services:
       - ./frontend:/app
       - /app/node_modules
 
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-app}"
+      # Local-dev fallback only; set POSTGRES_PASSWORD in the environment for anything real.
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-postgres}"
+      POSTGRES_DB: "${POSTGRES_DB:-app}"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "127.0.0.1:5432:5432"
+
   caddy:
     image: caddy:alpine
     ports:
@@ -27,6 +48,9 @@ services:
     configs:
       - source: caddyfile
         target: /etc/caddy/Caddyfile
+
+volumes:
+  pgdata:
 
 configs:
   caddyfile:

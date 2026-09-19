@@ -20,6 +20,8 @@ COPY app ./app
 # so the skill ships with the image. .dockerignore keeps the eval fixtures out:
 # those include real statement images and have no business in a built artifact.
 COPY skills ./skills
+COPY alembic.ini ./
+COPY alembic ./alembic
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev

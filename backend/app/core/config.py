@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     max_statement_files: int = 12
     statement_timeout_seconds: float = 300.0
 
+    # Must be an async URL, e.g. postgresql+asyncpg://user:pass@host:5432/db.
+    # No default on purpose: credentials belong in the environment.
+    database_url: str | None = None
+
+    # Firebase project whose ID tokens the frontend sends (see frontend/src/firebase.ts).
+    firebase_project_id: str = "meichu-2026"
+
 
 @lru_cache
 def get_settings() -> Settings:

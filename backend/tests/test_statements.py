@@ -18,12 +18,8 @@ from app.services.statement_agent import StatementAgentError
 client = TestClient(app)
 URL = f"{get_settings().api_v1_prefix}/statements/analyze"
 
-GROUND_TRUTH = (
-    Path(__file__).resolve().parents[1]
-    / "skills"
-    / "credit-card-statement-analysis"
-    / "evals"
-    / "ground_truth"
+SKILL_EVALS = (
+    Path(__file__).resolve().parents[1] / "skills" / "credit-card-statement-analysis" / "evals"
 )
 
 JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 64
@@ -126,14 +122,15 @@ def test_response_shape_matches_a_real_summary(fake_agent):
     """The schema must accept the actual output of the analysis scripts."""
     import sys
 
-    sys.path.insert(0, str(GROUND_TRUTH.parents[1] / "scripts"))
+    sys.path.insert(0, str(SKILL_EVALS.parent / "scripts"))
     from analyze_transactions import aggregate
 
-    real = aggregate(json.loads((GROUND_TRUTH / "2026-08.json").read_text(encoding="utf-8")))
+    fixture = SKILL_EVALS / "fixture_transactions.json"
+    real = aggregate(json.loads(fixture.read_text(encoding="utf-8")))
     from app.schemas.statements import StatementAnalysisResponse
 
     model = StatementAnalysisResponse(
         summary=real, summaries=[real], trend=None, narrative="x"
     )
-    assert model.summary["totals"]["net_spend"] == 5728
+    assert model.summary["totals"]["net_spend"] == 5644
     assert model.summary["reconciliation"]["matches"] is True
