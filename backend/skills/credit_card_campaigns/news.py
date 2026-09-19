@@ -1,6 +1,11 @@
 """Manual crawler: builds credit_card_campaigns.json from official bank pages.
 
     uv run python skills/credit_card_campaigns/news.py     (run from backend/)
+    uv run python skills/credit_card_campaigns/news.py --bank "中國信託銀行" --card "LINE Pay 聯名卡"
+
+With --bank and --card (both required together) only that one card from cards.csv is
+crawled; without them every card in cards.csv is. Either way the result is merged into the
+existing file, so cards that were not crawled keep their data.
 
 Pipeline per card (all rules live in app/services/campaign_crawler.py):
   1. The backend generates the search queries (site:<official bank domain> + card + year).
@@ -17,6 +22,7 @@ Pipeline per card (all rules live in app/services/campaign_crawler.py):
 Import the result with `uv run python -m app.cli.import_sales`.
 """
 
+import argparse
 import asyncio
 import csv
 import json
@@ -117,6 +123,25 @@ def load_cards_from_csv(file_path: Path) -> list[dict]:
     return cards
 
 
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Crawl official bank pages into credit_card_campaigns.json."
+    )
+    parser.add_argument("--bank", help="bank name exactly as in cards.csv (requires --card)")
+    parser.add_argument("--card", help="card name exactly as in cards.csv (requires --bank)")
+    args = parser.parse_args(argv)
+    if (args.bank is None) != (args.card is None):
+        parser.error("--bank and --card must be given together")
+    return args
+
+
+def select_cards(cards: list[dict], bank: str | None, card: str | None) -> list[dict]:
+    """All cards when no selection is given; otherwise only exact bank + card matches."""
+    if bank is None and card is None:
+        return cards
+    return [c for c in cards if c["bank"] == bank and c["card"] == card]
+
+
 def build_extractor(today: date):
     """Model call: extraction only, no tools. `today` is stated in the instruction."""
     instruction = (
@@ -160,13 +185,33 @@ def build_extractor(today: date):
     return extract
 
 
-async def main() -> int:
+async def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     load_dotenv()
     today = date.today()
-    cards = load_cards_from_csv(CSV_FILE_PATH)
-    extract = build_extractor(today)
+    all_cards = load_cards_from_csv(CSV_FILE_PATH)
+    cards = select_cards(all_cards, args.bank, args.card)
 
-    logger.info("Crawling %d cards as of %s", len(cards), today)
+    if not cards:
+        print(
+            f"No card in {CSV_FILE_PATH.name} matches --bank {args.bank!r} --card {args.card!r}.",
+            file=sys.stderr,
+        )
+        print("Available cards (bank / card):", file=sys.stderr)
+        for c in all_cards:
+            print(f"  {c['bank']} / {c['card']}", file=sys.stderr)
+        return 2
+
+    extract = build_extractor(today)
+    if args.bank is None:
+        logger.info("Crawling %d cards as of %s", len(cards), today)
+    else:
+        logger.info(
+            "Crawling %d selected card%s as of %s",
+            len(cards),
+            "" if len(cards) == 1 else "s",
+            today,
+        )
     results = []
     for idx, item in enumerate(cards, start=1):
         logger.info("[%d/%d] %s - %s", idx, len(cards), item["bank"], item["card"])
@@ -181,7 +226,8 @@ async def main() -> int:
             f" (FAILED: {result.error})" if result.error else "",
         )
         results.append(result)
-        await asyncio.sleep(1)
+        if idx < len(cards):
+            await asyncio.sleep(1)
 
     return finalize(results, OUTPUT_PATH, now=datetime.now(UTC))
 
