@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { Banknote, CircleX, Search, Store, Tag } from '@lucide/vue'
+import { useRouter } from 'vue-router'
 
 import SiteHeader from '../components/SiteHeader.vue'
 
+const router = useRouter()
 const location = ref('')
 const amount = ref('')
 const category = ref('')
@@ -12,6 +14,10 @@ const amountError = ref('')
 const categoryError = ref('')
 
 const formattedAmount = computed(() => amount.value.replace(/\B(?=(\d{3})+(?!\d))/g, ','))
+
+function isValidAmount(value: string) {
+  return /^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value))
+}
 
 function handleLocationInput() {
   if (location.value.trim()) locationError.value = ''
@@ -22,7 +28,7 @@ function handleAmountInput(event: Event) {
   amount.value = input.value.replace(/\D/g, '').replace(/^0+(?=\d)/, '')
   input.value = formattedAmount.value
 
-  if (/^[1-9]\d*$/.test(amount.value)) amountError.value = ''
+  if (isValidAmount(amount.value)) amountError.value = ''
 }
 
 function handleCategoryInput() {
@@ -46,8 +52,19 @@ function clearCategory() {
 
 function submitSearch() {
   locationError.value = location.value.trim() ? '' : '請輸入消費地點'
-  amountError.value = /^[1-9]\d*$/.test(amount.value) ? '' : '請輸入大於 0 的消費金額'
+  amountError.value = isValidAmount(amount.value) ? '' : '請輸入大於 0 的消費金額'
   categoryError.value = category.value.trim() ? '' : '請輸入品項或類別'
+
+  if (locationError.value || amountError.value || categoryError.value) return
+
+  void router.push({
+    name: 'recommendations',
+    query: {
+      platform: location.value.trim(),
+      price: amount.value,
+      category: category.value.trim(),
+    },
+  })
 }
 </script>
 
