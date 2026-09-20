@@ -11,6 +11,9 @@ class RecommendationRequest(BaseModel):
     price: float = Field(gt=0)
     currency: Literal["TWD"] = "TWD"
     locale: Literal["zh-TW", "en-US"] = "zh-TW"
+    # Demo/fast mode: rank only the already-imported candidate data. Keeping the
+    # default on preserves the normal page-level official-source verification flow.
+    web_search_enabled: bool = True
 
 
 class CardRef(BaseModel):

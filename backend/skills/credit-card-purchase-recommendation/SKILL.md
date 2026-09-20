@@ -30,6 +30,11 @@ The backend does **not** rank. Candidate order carries no meaning.
 - explain each choice;
 - open and read each choice's official bank page (this only checks existing candidates).
 
+When `request.web_search_enabled` is `false`, this is **fast demo mode**: use only
+the imported candidates and `spend_context`. Search and page-opening tools are unavailable,
+all picks must return `official_sources: []`, and you must not claim current official
+verification or suggest waiting for a future campaign.
+
 ## Hard rules
 
 1. **Choose only by `candidate_id`** from the lists you were given. Never name a card or

@@ -236,13 +236,27 @@ async def run_recommendation_agent(
     opened: set[str] = set()
 
     text = read_skill_text()
+    web_search_enabled = bool(payload.get("request", {}).get("web_search_enabled", True))
+    tools = []
+    if web_search_enabled:
+        tools = [_make_web_search(screening_inputs(payload)), _make_open_official_page(opened)]
+    else:
+        text += """
+
+## Fast demo mode
+
+`request.web_search_enabled` is false. Use only the supplied backend candidates
+and spend context. Web search and official-page opening are deliberately unavailable.
+Return `official_sources: []` for every pick; the backend will label it unverified.
+Do not claim you checked current bank information, and do not propose a wait suggestion.
+"""
     agent = Agent(
         name=APP_NAME,
         model=LiteLlm(model=f"openai/{model_name}", api_base=base_url, api_key=api_key),
         # A callable provider is used verbatim; a plain string would have its {...}
         # (the JSON examples in the contract) treated as ADK state placeholders.
         instruction=lambda _ctx: text,
-        tools=[_make_web_search(screening_inputs(payload)), _make_open_official_page(opened)],
+        tools=tools,
     )
     app = App(name=APP_NAME, root_agent=agent)
     runner = InMemoryRunner(app=app)

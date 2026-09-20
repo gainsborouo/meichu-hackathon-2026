@@ -90,8 +90,13 @@ async def stream_recommendation(
     # (up to two minutes). The generator reuses the session only to stamp
     # official_verified_at, and commits that itself.
     pre = await service.preprocess(session, user, body)
-    # Only when nothing current is on file do we look the user's own cards up live.
-    targets = [] if pre.now_candidates else await live_refresh.lookup_targets(session, user.id)
+    # Fast/demo mode intentionally uses only imported data. In normal mode, only
+    # when nothing current is on file do we look the user's own cards up live.
+    targets = (
+        []
+        if pre.now_candidates or not body.web_search_enabled
+        else await live_refresh.lookup_targets(session, user.id)
+    )
     await session.commit()
 
     async def events() -> AsyncIterator[str]:
@@ -103,6 +108,7 @@ async def stream_recommendation(
                 "mode": pre.mode,
                 "now_candidates": len(pre.now_candidates),
                 "future_candidates": len(pre.future_candidates),
+                "web_search_enabled": body.web_search_enabled,
             },
         )
         if targets:
@@ -129,7 +135,7 @@ async def stream_recommendation(
                 await session.rollback()
                 pre.lookup_attempted = True
         try:
-            if pre.has_candidates:
+            if pre.has_candidates and body.web_search_enabled:
                 yield _sse("searching", {"stage": "official_verification"})
             result, verified = await service.recommend(pre, agent)
             await service.mark_verified(session, verified.sale_ids, verified.benefit_ids)

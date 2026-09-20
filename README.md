@@ -46,6 +46,8 @@ curl -s -X PATCH "$API/me" -H "$AUTH" -H "Content-Type: application/json" -d '{"
 
 Submit the same purchase again. If a result is returned, it must require registration. Returning no recommendation is correct when no eligible campaign exists; the service must not fall back to a base benefit.
 
+For a fast demo, send `"web_search_enabled": false` in `POST /api/v1/recommendations/stream`. This ranks only imported benefits, campaigns, and the user's stored spend context. It deliberately skips live lookup and official-page verification, so results are `unverified` and cannot include a wait/calendar suggestion.
+
 Stop the containers when finished. This preserves the local PostgreSQL volume:
 
 ```bash

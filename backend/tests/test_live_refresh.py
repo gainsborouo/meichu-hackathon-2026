@@ -145,6 +145,24 @@ def stages(events):
 # --- 5. nothing on file -> live lookup -> reprocess -> model ------------------------------
 
 
+async def test_fast_demo_mode_skips_live_lookup_when_imported_data_has_no_candidate(session, world):
+    user, _ = world
+    lookup, agent = FakeLookup(), FakeAgent()
+
+    async with make_client(session, user, lookup, agent) as client:
+        response = await client.post(
+            f"{P}/recommendations/stream",
+            json={**REQ, "web_search_enabled": False},
+        )
+    assert response.status_code == 200
+    events = parse_sse(response.text)
+
+    assert stages(events) == [("searching", "preprocessing")]
+    assert lookup.calls == 0
+    assert agent.calls == []
+    assert events[-2][1]["best_now"] is None
+
+
 async def test_zero_candidates_triggers_lookup_caches_it_and_then_ranks(session, world):
     user, ctbc = world
     cards_before = await count(session, Card)

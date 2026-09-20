@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
@@ -11,6 +12,8 @@ from app.core.config import get_settings
 from app.db.session import get_session
 from app.models import User
 from app.services.users import upsert_user
+
+logger = logging.getLogger(__name__)
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 _bearer = HTTPBearer(auto_error=False)
@@ -27,6 +30,10 @@ async def verify_firebase_token(token: str) -> dict:
             audience=project_id,
         )
     except ValueError as exc:
+        # The response stays generic on purpose, but the operator needs the real reason
+        # (expired, "used too early" from a skewed clock, wrong audience, bad signature).
+        # google-auth's messages carry claims and timestamps, never the token itself.
+        logger.warning("Firebase ID token rejected (expected audience %r): %s", project_id, exc)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid Firebase ID token") from exc
 
 

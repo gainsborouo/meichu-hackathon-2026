@@ -69,3 +69,31 @@ async def test_me_requires_auth(client) -> None:
     app = client._transport.app
     app.dependency_overrides.pop(get_current_user)
     assert (await client.get(f"{get_settings().api_v1_prefix}/me")).status_code == 401
+
+
+async def test_rejected_firebase_token_is_logged_with_its_reason_but_answered_generically(
+    session, caplog, monkeypatch
+) -> None:
+    import app.api.deps as deps
+
+    def reject(token, request, audience=None, **kw):
+        raise ValueError("Token used too early, 100 < 200")
+
+    monkeypatch.setattr(deps.id_token, "verify_firebase_token", reject)
+    app = create_app()
+
+    async def _session():
+        yield session
+
+    app.dependency_overrides[get_session] = _session
+    secret = "eyJ.super-secret-token-value.sig"
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        with caplog.at_level("WARNING"):
+            r = await c.get(
+                f"{get_settings().api_v1_prefix}/me", headers={"Authorization": f"Bearer {secret}"}
+            )
+    assert r.status_code == 401 and r.json() == {"detail": "Invalid Firebase ID token"}
+    assert (
+        "Token used too early" in caplog.text and "expected audience 'meichu-2026'" in caplog.text
+    )
+    assert secret not in caplog.text, "the token itself must never be logged"

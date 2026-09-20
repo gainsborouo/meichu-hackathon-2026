@@ -412,6 +412,41 @@ async def test_stream_event_order_and_shape(api):
     assert "email" not in json.dumps(api.agent.calls[0])
 
 
+async def test_fast_demo_mode_uses_imported_data_without_official_search(api, session):
+    # The fake mirrors fast mode: no page can have been opened, so no citation can
+    # turn this into a verified result or stamp the database.
+    api.agent.answer = {
+        "best_now": {
+            "candidate_id": "free-uni#0",
+            "reason": "Use the imported offer data.",
+            "official_sources": [],
+        },
+        "explanation": "",
+    }
+
+    events = parse_sse(
+        (
+            await api.post(
+                f"{P}/recommendations/stream",
+                json={**REQ, "web_search_enabled": False},
+            )
+        ).text
+    )
+
+    assert [(name, data.get("stage")) for name, data in events if name == "searching"] == [
+        ("searching", "preprocessing")
+    ]
+    assert events[0][1]["web_search_enabled"] is False
+    assert events[-2][1]["best_now"]["verification_status"] == "unverified"
+    assert api.agent.calls[0]["request"]["web_search_enabled"] is False
+    assert (
+        await session.scalar(
+            select(func.count()).select_from(Sale).where(Sale.official_verified_at.is_not(None))
+        )
+        == 0
+    )
+
+
 async def test_stream_reports_model_violation_as_error_event(api):
     api.agent.answer = {"best_now": {"candidate_id": "unheld-cube#0", "reason": "x"}}
     events = parse_sse((await api.post(f"{P}/recommendations/stream", json=REQ)).text)
