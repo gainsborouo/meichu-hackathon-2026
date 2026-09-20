@@ -8,6 +8,7 @@ allow-list, refuses non-public addresses, and bounds time and size.
 
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import re
 import socket
@@ -16,7 +17,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from urllib.error import HTTPError, URLError
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote, urljoin, urlparse, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
 
 from app.services.official_sources import is_official_for_any_bank
@@ -147,6 +148,25 @@ def readable_text(body: bytes, content_type: str) -> tuple[str, str]:
     return re.sub(r"\s+", " ", extractor.title).strip(), text
 
 
+def _request_url(url: str) -> str:
+    """The URL as sent on the wire. Bank pages and search hits often carry raw Chinese in the
+    path or query; HTTP needs those percent-encoded (RFC 3986), and http.client raises
+    UnicodeEncodeError on them otherwise. Only non-ASCII characters are touched: the scheme
+    and host (already checked against the allow-list) and any existing %XX are left as they are."""
+    if url.isascii():
+        return url
+    parts = urlsplit(url)
+    return urlunsplit(
+        (
+            parts.scheme,
+            parts.netloc,
+            quote(parts.path, safe="/%:@!$&'()*+,;=-._~"),
+            quote(parts.query, safe="=&%:@!$'()*+,;/?-._~"),
+            "",
+        )
+    )
+
+
 def fetch_page(url: str, *, get: Getter = _get, is_public: Resolver = is_public_host) -> PageResult:
     current = url.strip()
     for _ in range(MAX_REDIRECTS + 1):
@@ -156,8 +176,9 @@ def fetch_page(url: str, *, get: Getter = _get, is_public: Resolver = is_public_
         if not is_public(host):
             return PageResult(False, current, error="host does not resolve to a public address")
         try:
-            status, headers, body = get(current)
-        except (URLError, TimeoutError, OSError) as exc:
+            status, headers, body = get(_request_url(current))
+        except (URLError, TimeoutError, OSError, ValueError, http.client.HTTPException) as exc:
+            # Any failure to fetch is "not opened", never an exception the caller must survive.
             return PageResult(False, current, error=f"could not open page: {exc}")
 
         if status in (301, 302, 303, 307, 308):

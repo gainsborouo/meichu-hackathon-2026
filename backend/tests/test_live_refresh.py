@@ -57,7 +57,8 @@ class FakeLookup(LiveLookup):
 
     def _fetch(self, url):
         self.fetched.append(url)
-        if not self._fetch_ok:
+        if not self._fetch_ok or url not in self._pages:
+            # Like the real fetch_page: an unknown or dead URL is "not opened", never an exception.
             return PageResult(False, url, 404, error="HTTP 404")
         return PageResult(True, url, 200, "LINE Pay", self._pages[url])
 
@@ -190,9 +191,11 @@ async def test_lookup_queries_are_backend_built_and_contain_no_user_data(session
         await stream(client)
 
     assert lookup.queries, "a lookup happened"
+    # Some queries are year-scoped; one deliberately is not (product pages often omit a year).
+    assert any(str(2026) in q for q in lookup.queries)
     for query in lookup.queries:
         assert query.startswith("site:ctbcbank.com")
-        assert "LINE Pay 聯名卡" in query and str(2026) in query
+        assert "LINE Pay 聯名卡" in query
         for forbidden in ("secret@x.com", "@", "7490", "AirPods", "momo"):
             assert forbidden not in query, forbidden
     assert "spend_context" not in json.dumps(lookup.extracted, ensure_ascii=False)

@@ -1,5 +1,6 @@
 """Page-level verification: the backend must really open the page. No network here."""
 
+import http.client
 import ssl
 
 import pytest
@@ -139,3 +140,66 @@ def test_text_extraction_collapses_whitespace_and_honours_charset():
     )
     assert title == "A B" and text == "你好 世界"
     assert MIN_TEXT_CHARS >= 1
+
+
+# --- non-ASCII URLs (a search hit with raw Chinese in its path crashed a whole card) --------
+
+
+def test_non_ascii_urls_are_percent_encoded_on_the_wire_but_reported_as_given():
+    sent = []
+    url = "https://www.esunbank.com/zh-tw/活動/優惠?名稱=熊本熊&x=1"
+
+    def get(u):
+        sent.append(u)
+        return 200, HTML, GOOD.encode()
+
+    result = fetch_page(url, get=get, is_public=public)
+    assert result.ok and result.url == url
+    assert sent == [
+        "https://www.esunbank.com/zh-tw/%E6%B4%BB%E5%8B%95/%E5%84%AA%E6%83%A0"
+        "?%E5%90%8D%E7%A8%B1=%E7%86%8A%E6%9C%AC%E7%86%8A&x=1"
+    ]
+    assert sent[0].isascii()
+
+
+def test_ascii_and_already_encoded_urls_are_sent_untouched():
+    sent = []
+    url = "https://www.esunbank.com/a%20b/%E6%B4%BB?q=%E5%8B%95"
+
+    def get(u):
+        sent.append(u)
+        return 200, HTML, GOOD.encode()
+
+    fetch_page(url, get=get, is_public=public)
+    assert sent == [url]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        UnicodeEncodeError("ascii", "活動", 0, 1, "boom"),
+        ValueError("bad"),
+        http.client.BadStatusLine("x"),
+    ],
+)
+def test_any_fetch_exception_is_a_not_opened_result_never_a_raise(error):
+    def get(u):
+        raise error
+
+    result = fetch_page(URL, get=get, is_public=public)
+    assert not result.ok and "could not open page" in result.error
+
+
+def test_the_host_is_never_altered_by_encoding():
+    sent = []
+
+    def get(u):
+        sent.append(u)
+        return 200, HTML, GOOD.encode()
+
+    fetch_page("https://www.esunbank.com/活動", get=get, is_public=public)
+    assert sent[0].startswith("https://www.esunbank.com/")
+    # A non-ASCII look-alike host is still refused before any request.
+    sent.clear()
+    assert not fetch_page("https://www.esunbank.com.例子.tw/活動", get=get, is_public=public).ok
+    assert sent == []

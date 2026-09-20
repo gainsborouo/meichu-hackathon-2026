@@ -45,6 +45,7 @@ from app.services.campaign_crawler import (  # noqa: E402
 )
 from app.services.card_extractor import ExtractorConfigError, build_extractor  # noqa: E402
 from app.services.card_identity import crawler_identities  # noqa: E402
+from app.services.crawl_sources import base_urls_for  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger("card_crawler")
@@ -83,7 +84,9 @@ async def load_targets() -> list[CrawlTarget]:
 
     logger.warning("DATABASE_URL is not set; reading crawler cards from the card identity file")
     return [
-        CrawlTarget(i.catalog_key, i.search_bank_name, i.search_card_name)
+        CrawlTarget(
+            i.catalog_key, i.search_bank_name, i.search_card_name, base_urls_for(i.catalog_key)
+        )
         for i in crawler_identities()
     ]
 

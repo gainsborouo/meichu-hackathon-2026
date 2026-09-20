@@ -39,6 +39,7 @@ from app.services.campaign_crawler import (
     ddgs_search,
 )
 from app.services.card_extractor import build_extractor
+from app.services.crawl_sources import base_urls_for
 from app.services.official_pages import fetch_page
 from app.services.sales_import import import_dataset
 
@@ -106,7 +107,7 @@ async def lookup_targets(session: AsyncSession, user_id: Any) -> list[CrawlTarge
         .order_by(UserCard.created_at, Card.catalog_key)
     )
     targets = [
-        CrawlTarget(key, bank, card)
+        CrawlTarget(key, bank, card, base_urls_for(key))
         for key, bank, card in rows.all()
         if _recent_misses.get(key, 0.0) <= now
     ]

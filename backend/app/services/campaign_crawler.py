@@ -21,7 +21,7 @@ import json
 import logging
 import os
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -35,8 +35,14 @@ from app.services.sales_import import parse_date
 logger = logging.getLogger(__name__)
 
 MAX_PAGES_PER_CARD = 5
+MAX_BASE_RETRIES = 3
 MAX_URLS_TRIED_PER_CARD = 12
 MAX_CHARS_PER_PAGE_FOR_MODEL = 6000
+MAX_CHARS_PER_BASE_PAGE_FOR_MODEL = 14000
+_EXCERPT_HEAD = 500
+_EXCERPT_RADIUS = 220
+_EXCERPT_GAP = "\n[…]\n"
+_REWARD_HINT = re.compile(r"\d+(?:\.\d+)?\s*%|\d{1,2}\s*折|回饋|現金")
 _RECURRENCES = {"once", "monthly", "quarterly", "yearly"}
 
 Search = Callable[[str], list[str]]
@@ -229,6 +235,9 @@ class OpenedPage:
     url: str  # final URL the backend actually read
     title: str
     text: str
+    # True for a page opened from the central base-benefit metadata (the card's own official
+    # benefit page) rather than found by search.
+    base: bool = False
 
 
 def gather_official_pages(
@@ -239,14 +248,43 @@ def gather_official_pages(
     search: Search,
     fetch: Fetch = fetch_page,
     cancelled: Callable[[], bool] | None = None,
+    base_urls: Sequence[str] = (),
 ) -> list[OpenedPage]:
     """Open official pages for the card. Only successfully opened, readable pages count,
     and each is identified by its FINAL url.
+
+    `base_urls` are the card's official base-benefit pages from the central metadata. They are
+    opened first and do not depend on search at all, so a search that returns nothing, is
+    rate-limited or raises can never cost a card its base benefit. They are held to the same
+    rules as any other page: official https for THIS bank, redirects re-checked, readable.
 
     `cancelled` is polled between the blocking calls. A thread cannot be killed, so when a
     caller gives up (a timeout) it sets this and the work stops at the next call boundary
     instead of running on for minutes."""
     aliases = card_aliases(card)
+    pages: dict[str, OpenedPage] = {}
+    base_keys: list[str] = []
+    for href in base_urls:
+        if cancelled is not None and cancelled():
+            return []
+        if not is_official_url(bank, href):
+            logger.warning("base benefit URL is not official for %s, skipped: %s", bank, href)
+            continue
+        try:
+            result = fetch(href)
+        except Exception as exc:  # a bad URL must not lose the card
+            logger.info("base page fetch failed (%s): %s", exc, href)
+            continue
+        if not result.ok or not is_official_url(bank, result.url):
+            logger.info(
+                "base page not opened (%s): %s", result.error or "unofficial final URL", href
+            )
+            continue
+        key = normalize_url(result.url)
+        if key not in pages:
+            pages[key] = OpenedPage(result.url, result.title, result.text, base=True)
+            base_keys.append(key)
+
     candidates: list[str] = []
     for query in build_queries(bank, card, year):
         if cancelled is not None and cancelled():
@@ -262,19 +300,27 @@ def gather_official_pages(
             }:
                 candidates.append(href)
 
-    pages: dict[str, OpenedPage] = {}
     for href in candidates[:MAX_URLS_TRIED_PER_CARD]:
         if cancelled is not None and cancelled():
             return []
-        result = fetch(href)
+        try:
+            result = fetch(href)
+        except Exception as exc:  # a bad search hit must not lose the card or its base page
+            logger.info("fetch failed (%s): %s", exc, href)
+            continue
         if not result.ok or not is_official_url(bank, result.url):
             logger.info("not opened (%s): %s", result.error or "unofficial final URL", href)
             continue
         pages.setdefault(
             normalize_url(result.url), OpenedPage(result.url, result.title, result.text)
         )
-    ordered = sorted(pages.values(), key=lambda p: not page_mentions_card(p.text, aliases))
-    return ordered[:MAX_PAGES_PER_CARD]
+    base_pages = [pages[k] for k in base_keys]
+    others = sorted(
+        (p for k, p in pages.items() if k not in base_keys),
+        key=lambda p: not page_mentions_card(p.text, aliases),
+    )
+    # Base pages are never squeezed out by search results.
+    return base_pages + others[: max(MAX_PAGES_PER_CARD - len(base_pages), 0)]
 
 
 SEARCH_RESULTS_PER_QUERY = 8
@@ -295,7 +341,9 @@ async def crawler_targets(session: Any) -> list[CrawlTarget]:
         )
         .order_by(Card.catalog_key)
     )
-    return [CrawlTarget(key, bank, card) for key, bank, card in rows.all()]
+    from app.services.crawl_sources import base_urls_for
+
+    return [CrawlTarget(key, bank, card, base_urls_for(key)) for key, bank, card in rows.all()]
 
 
 def ddgs_search(query: str) -> list[str]:
@@ -318,6 +366,8 @@ class CrawlTarget:
     card_key: str
     bank: str
     card: str
+    # Official base-benefit pages (central metadata). URLs only, never a reward.
+    base_urls: tuple[str, ...] = ()
 
 
 @dataclass
@@ -343,6 +393,56 @@ def _stable_id(kind: str, card_key: str, title: str, start: str | None) -> str:
 def _confidence(item: dict[str, Any]) -> float | None:
     value = item.get("confidence")
     return float(value) if isinstance(value, (int, float)) and 0 <= value <= 1 else None
+
+
+# A base benefit is the card's reward on ordinary spending. A reward tied to a category,
+# merchant, channel, customer segment or bonus tier is real but is not that, and because the
+# reward text is turned into a general rule, recording it as a base benefit would apply it to
+# every purchase. These words in the title, the reward or the quoted evidence mean the
+# statement is scoped, so it is not accepted as a base benefit.
+_NARROW_SCOPE_WORDS = (
+    "保費",
+    "保險",
+    "新戶",
+    "新卡友",
+    "首次申辦",
+    "首刷",
+    "指定",
+    "專屬",
+    "限量",
+    "特店",
+    "分期",
+    "加碼",
+    "網購",
+    "旅遊",
+    "機票",
+    "訂房",
+    "飯店",
+    "加油",
+    "外送",
+    "餐廳",
+    "餐飲",
+    "超市",
+    "量販",
+    "百貨",
+    "繳費",
+    "繳稅",
+    "停車",
+    "影音",
+    "串流",
+    "藥妝",
+    "電子支付",
+    "行動支付",
+    "會員日",
+    "生日",
+)
+
+
+def narrow_scope_word(*texts: str) -> str | None:
+    for word in _NARROW_SCOPE_WORDS:
+        if any(word in text for text in texts):
+            return word
+    return None
 
 
 def _rate_parseable(reward: str) -> bool:
@@ -379,24 +479,44 @@ def validate_extraction(
     opened_at = (now or datetime.now(UTC)).isoformat()
     aliases = card_aliases(card)
     by_url = {normalize_url(p.url): p for p in pages}
+    registry = pair_registry(pages, today)
 
     def drop(kind: str, item: Any, reason: str) -> None:
         title = _text(item.get("title")) if isinstance(item, dict) else "?"
-        result.dropped.append(f"{kind} {title!r}: {reason}")
+        note = ""
+        if kind == "base_benefit" and isinstance(item, dict):
+            quotes = [_text(item.get("evidence")), _text(item.get("validity_evidence"))]
+            note = " | quoted: " + " ‖ ".join(q[:90] for q in quotes if q)
+        result.dropped.append(f"{kind} {title!r}: {reason}{note}")
 
     for item in raw.get("base_benefits") or []:
         if not isinstance(item, dict):
             drop("base_benefit", item, "not an object")
             continue
         title, reward = _text(item.get("title")), _text(item.get("reward"))
-        page = _source_page(item, bank, by_url)
         start, end = parse_date(item.get("effective_start")), parse_date(item.get("effective_end"))
-        evidence = _text(item.get("evidence"))
-        validity = _text(item.get("validity_evidence"))
-        if not title or not reward:
+        pair_id = item.get("pair_id")
+        chosen = registry.get(str(pair_id)) if pair_id is not None else None
+        if chosen is not None:
+            # The model referred to a backend-provided pair by id: the quotes and the page are
+            # the backend's own verbatim slices. Everything below still applies to them.
+            page = chosen[0]
+            evidence, validity = chosen[1]["evidence"], chosen[1]["validity_evidence"]
+        else:
+            page = _source_page(item, bank, by_url)
+            evidence = _text(item.get("evidence"))
+            validity = _text(item.get("validity_evidence"))
+        if pair_id is not None and chosen is None:
+            drop("base_benefit", item, f"pair_id {pair_id!r} is not one of the suggested pairs")
+        elif not title or not reward:
             drop("base_benefit", item, "missing title or reward")
         elif page is None:
-            drop("base_benefit", item, "source_url is not an official page the backend opened")
+            drop(
+                "base_benefit",
+                item,
+                f"source_url {_text(item.get('source_url'))!r} is not an official page "
+                "the backend opened",
+            )
         elif not _rate_parseable(reward):
             drop("base_benefit", item, "reward has no parseable rate")
         elif item.get("effective_start") and start is None:
@@ -419,6 +539,13 @@ def validate_extraction(
             drop("base_benefit", item, problem)
         elif problem := reward_unsupported(reward, page_context(page.text, evidence)):
             drop("base_benefit", item, problem)
+        elif word := narrow_scope_word(title, reward, evidence):
+            drop(
+                "base_benefit",
+                item,
+                f"reward is scoped to {word!r}: that is a category or campaign reward, "
+                "not the card's base benefit on ordinary spending",
+            )
         else:
             result.base_benefits.append(
                 {
@@ -457,7 +584,12 @@ def validate_extraction(
         elif end < today:
             drop("campaign", item, f"already ended {end}")
         elif page is None:
-            drop("campaign", item, "source_url is not an official page the backend opened")
+            drop(
+                "campaign",
+                item,
+                f"source_url {_text(item.get('source_url'))!r} is not an official page "
+                "the backend opened",
+            )
         elif not _rate_parseable(reward):
             drop("campaign", item, "reward has no parseable rate")
         elif register_url and not is_official_url(bank, register_url):
@@ -517,15 +649,144 @@ def _iso_or_none(value: Any) -> str | None:
     return parsed.isoformat() if parsed else None
 
 
+def model_excerpt(text: str, limit: int) -> str:
+    """What the model reads of a page. A card page is 25-56k characters and the reward wording
+    (and the dates beside it) is rarely in the first few thousand, so cutting at `limit` would
+    hide the very text the model has to quote. Keep the start of the page plus windows around
+    every rate / reward word, in page order, joined by a visible gap marker. Every window is a
+    contiguous slice of the page, so a quote taken from one window is still verbatim."""
+    if len(text) <= limit:
+        return text
+    spans = [(0, min(_EXCERPT_HEAD, len(text)))]
+    for m in _REWARD_HINT.finditer(text):
+        lo, hi = max(m.start() - _EXCERPT_RADIUS, 0), min(m.end() + _EXCERPT_RADIUS, len(text))
+        if lo <= spans[-1][1]:
+            spans[-1] = (spans[-1][0], max(spans[-1][1], hi))
+        else:
+            spans.append((lo, hi))
+    out: list[str] = []
+    used = 0
+    for lo, hi in spans:
+        chunk = text[lo:hi]
+        if used + len(chunk) > limit:
+            chunk = chunk[: max(limit - used, 0)]
+        if chunk:
+            out.append(chunk)
+            used += len(chunk) + len(_EXCERPT_GAP)
+        if used >= limit:
+            break
+    return _EXCERPT_GAP.join(out)
+
+
+_PAIR_DISTANCE = 700
+_PAIR_MAX_CANDIDATES = 60
+_RATE = re.compile(r"\d+(?:\.\d+)?\s*%|\d{1,2}\s*折")
+_DATE = re.compile(r"\d{4}\s*[/年]\s*\d{1,2}\s*[/月]\s*\d{1,2}")
+_PREFERRED_WORDS = ("基本回饋", "一般消費", "國內", "海外", "現金回饋")
+
+
+def _tidy_span(text: str, lo: int, hi: int) -> str:
+    """text[lo:hi] without the half-word at either cut, so a quote reads as a phrase."""
+    piece = text[lo:hi]
+    if lo > 0 and not text[lo - 1].isspace():
+        cut = re.search(r"\s", piece[:14])
+        if cut:
+            piece = piece[cut.end() :]
+    if hi < len(text) and not text[hi].isspace():
+        cut = re.search(r"\s\S*$", piece[-14:])
+        if cut:
+            piece = piece[: len(piece) - len(piece[-14:]) + cut.start()]
+    return piece.strip()
+
+
+def freshness_checked_pairs(text: str, today: date, *, limit: int = 10) -> list[dict[str, str]]:
+    """Pairs of short verbatim quotes, {"evidence", "validity_evidence"}, that already pass.
+
+    A reward figure and the period line that governs it are usually a few lines apart, and
+    the freshness gate judges the surroundings of both. Finding a pairing that survives is a
+    search the backend can do exactly, using the same `validity_problem` and neighbourhood
+    that will judge the model's answer. This decides nothing about WHAT a statement is: a pair
+    may describe a bonus tier or a category, and the model must still only use one that truly
+    is the card's reward on ordinary spending. It only replaces guessing where an old end date
+    lurks. Scoped wording (see `narrow_scope_word`) is left out of the reward side."""
+    rewards: list[tuple[int, str]] = []
+    for m in _RATE.finditer(text):
+        quote = _tidy_span(text, max(m.start() - 22, 0), min(m.end() + 14, len(text)))
+        if len(_compact(quote)) >= 8 and not narrow_scope_word(quote):
+            rewards.append((m.start(), quote))
+    periods: list[tuple[int, str]] = []
+    for m in _DATE.finditer(text):
+        quote = _tidy_span(text, max(m.start() - 14, 0), min(m.end() + 26, len(text)))
+        if len(_compact(quote)) >= 8:
+            periods.append((m.start(), quote))
+
+    pairs: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    checked = 0
+    for r_at, reward_quote in rewards:
+        nearby = sorted(
+            (p for p in periods if abs(p[0] - r_at) <= _PAIR_DISTANCE),
+            key=lambda p: abs(p[0] - r_at),
+        )
+        for _, period_quote in nearby[:3]:
+            key = (_compact(reward_quote), _compact(period_quote))
+            if key in seen:
+                continue
+            seen.add(key)
+            checked += 1
+            if checked > _PAIR_MAX_CANDIDATES * 8:
+                break
+            context = page_context(text, reward_quote, period_quote)
+            if validity_problem(period_quote, context, today) is None:
+                pairs.append({"evidence": reward_quote, "validity_evidence": period_quote})
+                break
+    pairs.sort(key=lambda p: not any(w in p["evidence"] for w in _PREFERRED_WORDS))
+    return pairs[:limit]
+
+
+def pair_registry(
+    pages: list[OpenedPage], today: date
+) -> dict[str, tuple[OpenedPage, dict[str, str]]]:
+    """Suggested quote pairs by id ("<page index>.<pair index>") for every base page. The same
+    deterministic function feeds the model's payload and the validation of its answer, so an id
+    means the same quotes on both sides."""
+    registry: dict[str, tuple[OpenedPage, dict[str, str]]] = {}
+    for i, page in enumerate(pages):
+        if page.base:
+            for j, pair in enumerate(freshness_checked_pairs(page.text, today)):
+                registry[f"{i}.{j}"] = (page, pair)
+    return registry
+
+
 def extraction_payload(
     bank: str, card: str, pages: list[OpenedPage], today: date
 ) -> dict[str, Any]:
+    registry = pair_registry(pages, today)
     return {
         "today": today.isoformat(),
         "bank": bank,
         "card": card,
         "pages": [
-            {"url": p.url, "title": p.title, "text": p.text[:MAX_CHARS_PER_PAGE_FOR_MODEL]}
+            {
+                "url": p.url,
+                "title": p.title,
+                "kind": "base_benefit_page" if p.base else "search_result",
+                **(
+                    {
+                        "suggested_quote_pairs": [
+                            {"id": pid, **pair}
+                            for pid, (owner, pair) in registry.items()
+                            if owner is p
+                        ]
+                    }
+                    if p.base
+                    else {}
+                ),
+                "text": model_excerpt(
+                    p.text,
+                    MAX_CHARS_PER_BASE_PAGE_FOR_MODEL if p.base else MAX_CHARS_PER_PAGE_FOR_MODEL,
+                ),
+            }
             for p in pages
         ],
     }
@@ -557,20 +818,52 @@ async def crawl_card(
             search=search,
             fetch=fetch,
             cancelled=cancelled,
+            base_urls=target.base_urls,
         )
         pages = await run_blocking(gather) if run_blocking is not None else gather()
     except Exception as exc:  # network / search library failure for this card only
         return CardResult(bank, card, target.card_key, error=f"search or fetch failed: {exc}")
     if not pages:
         return CardResult(bank, card, target.card_key, error="no official page could be opened")
+
+    async def ask(payload: dict[str, Any]) -> Any:
+        raw = extract(payload)
+        return await raw if hasattr(raw, "__await__") else raw
+
+    def check(raw: Any) -> CardResult:
+        return validate_extraction(
+            raw, card_key=target.card_key, bank=bank, card=card, pages=pages, today=today, now=now
+        )
+
+    payload = extraction_payload(bank, card, pages, today)
     try:
-        raw = extract(extraction_payload(bank, card, pages, today))
-        raw = await raw if hasattr(raw, "__await__") else raw
+        result = check(await ask(payload))
     except Exception as exc:
         return CardResult(bank, card, target.card_key, error=f"extraction failed: {exc}")
-    return validate_extraction(
-        raw, card_key=target.card_key, bank=bank, card=card, pages=pages, today=today, now=now
-    )
+
+    # Informed retries. A card page usually holds many statements; the validator accepts only a
+    # quote whose own surroundings are current, so a pick is sometimes rejected only because an
+    # old end date sits a few lines away. Telling the model exactly what was rejected and why
+    # lets it choose a tighter or cleaner statement. Every retry goes through the identical
+    # validation: nothing is relaxed, and a card whose page cannot yield a valid statement
+    # simply ends up with no base benefit.
+    if not result.base_benefits and any(p.base for p in pages):
+        rejected = [d for d in result.dropped if d.startswith("base_benefit")] or [
+            "no base_benefits were returned although a base_benefit_page was supplied"
+        ]
+        for attempt in range(1, MAX_BASE_RETRIES + 1):
+            try:
+                retry = check(await ask({**payload, "rejected_previous": rejected}))
+            except Exception as exc:
+                logger.info("retry %d for %s failed: %s", attempt, target.card_key, exc)
+                break
+            fresh = [d for d in retry.dropped if d.startswith("base_benefit")]
+            result.dropped += [f"(retry {attempt}) {d}" for d in fresh]
+            if retry.base_benefits:
+                result.base_benefits = retry.base_benefits
+                break
+            rejected = rejected + [d for d in fresh if d not in rejected]
+    return result
 
 
 # --- output ----------------------------------------------------------------

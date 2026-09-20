@@ -205,7 +205,7 @@ async def test_identity_migration_and_canonical_live_refresh(monkeypatch) -> Non
         ]
         best = events[-2][1]["best_now"]
         assert best["candidate_type"] == "base_benefit" and best["card"]["id"] == str(canonical)
-        assert lookup.fetched == [CTBC_URL]
+        assert CTBC_URL in lookup.fetched  # the base page is tried first, then search hits
 
         assert (await q("SELECT count(*) FROM cards"))[0][0] == cards_before, "no Card created"
         [(card_id, source, stamped)] = await q(
