@@ -1,6 +1,17 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { CreditCard, ExternalLink, LoaderCircle, Search, TriangleAlert } from '@lucide/vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import {
+  CreditCard,
+  ExternalLink,
+  LoaderCircle,
+  MessageCircle,
+  RotateCcw,
+  Search,
+  Send,
+  TriangleAlert,
+  X,
+} from '@lucide/vue'
+import MarkdownIt from 'markdown-it'
 import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter, type LocationQueryValue } from 'vue-router'
@@ -13,6 +24,10 @@ import { api } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
 
 const STREAM_URL = '/api/v1/recommendations/stream'
+const CHAT_STREAM_URL = '/api/v1/recommendations/chat/stream'
+const CHAT_HISTORY_LIMIT = 12
+const CHAT_QUESTION_LIMIT = 2000
+const CHAT_SCROLL_THRESHOLD = 48
 
 // Mirrors backend/app/schemas/recommendations.py.
 interface RecommendationRequest {
@@ -85,8 +100,15 @@ interface SseEvent {
   data: string
 }
 
+interface ChatMessage {
+  id: number
+  role: 'user' | 'assistant'
+  content: string
+}
+
 type SearchState = 'idle' | 'loading' | 'success' | 'error' | 'unauthenticated'
 type PurchaseState = 'idle' | 'submitting' | 'success' | 'error'
+type ChatState = 'idle' | 'streaming' | 'error'
 type PreferenceSearchSnapshot = {
   state: SearchState
   result: RecommendationResponse | null
@@ -103,6 +125,15 @@ const STAGE_PROGRESS: Record<string, string> = {
   preprocessing: 'recommendations.preprocessingProgress',
   official_verification: 'recommendations.verificationProgress',
 }
+
+const markdown = new MarkdownIt({ html: false, linkify: true })
+
+markdown.renderer.rules.link_open = (tokens, index, options, _env, renderer) => {
+  tokens[index]!.attrSet('target', '_blank')
+  tokens[index]!.attrSet('rel', 'noopener noreferrer')
+  return renderer.renderToken(tokens, index, options)
+}
+markdown.renderer.rules.image = (tokens, index) => markdown.utils.escapeHtml(tokens[index]!.content)
 
 const route = useRoute()
 const router = useRouter()
@@ -125,13 +156,36 @@ const progressKey = ref(DEFAULT_PROGRESS_KEY)
 const failedImageIds = ref(new Set<string>())
 const purchaseState = ref<PurchaseState>('idle')
 const selectedCardId = ref<string | null>(null)
+const chatOpen = ref(false)
+const chatUnread = ref(false)
+const chatState = ref<ChatState>('idle')
+const chatMessages = ref<ChatMessage[]>([])
+const chatDraft = ref('')
+const pendingChatQuestion = ref('')
+const streamedChatAnswer = ref('')
+const chatErrorKey = ref('')
+const chatMessageList = ref<HTMLElement | null>(null)
+const chatInput = ref<HTMLTextAreaElement | null>(null)
+const chatLauncher = ref<HTMLButtonElement | null>(null)
 let activeController: AbortController | null = null
+let chatController: AbortController | null = null
 let purchaseRequestVersion = 0
+let nextChatMessageId = 1
 let preferenceSearchSnapshot: PreferenceSearchSnapshot | null = null
 
 const formattedAmount = computed(() => amount.value.replace(/\B(?=(\d{3})+(?!\d))/g, ','))
 const requestError = computed(() => (requestErrorKey.value ? t(requestErrorKey.value) : ''))
 const progressMessage = computed(() => t(progressKey.value))
+const chatError = computed(() => (chatErrorKey.value ? t(chatErrorKey.value) : ''))
+const chatAvailable = computed(() =>
+  Boolean(searchState.value === 'success' && searchResult.value && resultRequest.value),
+)
+const canSubmitChat = computed(() => {
+  const question = chatDraft.value.trim()
+  return (
+    chatState.value !== 'streaming' && question.length > 0 && question.length <= CHAT_QUESTION_LIMIT
+  )
+})
 
 const modeNotice = computed(() => {
   if (!searchResult.value) return ''
@@ -232,7 +286,7 @@ function parseSseBlock(block: string): SseEvent | null {
 async function readSseStream(
   body: ReadableStream<Uint8Array>,
   signal: AbortSignal,
-  onEvent: (event: SseEvent) => void,
+  onEvent: (event: SseEvent) => boolean | void,
 ) {
   const reader = body.getReader()
   const decoder = new TextDecoder()
@@ -247,15 +301,17 @@ async function readSseStream(
     while (boundary !== -1) {
       const parsed = parseSseBlock(buffer.slice(0, boundary))
       buffer = buffer.slice(boundary + 2)
-      if (parsed) onEvent(parsed)
+      if (parsed && onEvent(parsed) === false) return false
       boundary = buffer.indexOf('\n\n')
     }
 
     if (final && buffer.trim()) {
       const parsed = parseSseBlock(buffer)
       buffer = ''
-      if (parsed) onEvent(parsed)
+      if (parsed && onEvent(parsed) === false) return false
     }
+
+    return true
   }
 
   try {
@@ -269,8 +325,14 @@ async function readSseStream(
         drain(true)
         return
       }
-      drain(false)
+      if (!drain(false)) {
+        await reader.cancel().catch(() => undefined)
+        return
+      }
     }
+  } catch (error) {
+    await reader.cancel().catch(() => undefined)
+    throw error
   } finally {
     signal.removeEventListener('abort', cancel)
   }
@@ -303,6 +365,180 @@ function parseRecommendation(data: string): RecommendationResponse {
   }
 
   return payload as unknown as RecommendationResponse
+}
+
+function parseChatDelta(data: string) {
+  const text = parsePayload(data).text
+  if (typeof text !== 'string') throw new StreamFailure('unexpected chat delta')
+  return text
+}
+
+function renderChatMarkdown(content: string) {
+  return markdown.render(content)
+}
+
+function isNearChatBottom() {
+  const list = chatMessageList.value
+  if (!list) return false
+  return list.scrollHeight - list.scrollTop - list.clientHeight <= CHAT_SCROLL_THRESHOLD
+}
+
+async function scrollChatToBottom(force = false) {
+  const shouldScroll = force || isNearChatBottom()
+  if (!shouldScroll) return
+
+  await nextTick()
+  const list = chatMessageList.value
+  if (list) list.scrollTop = list.scrollHeight
+}
+
+function resetChat() {
+  chatController?.abort()
+  chatController = null
+  chatOpen.value = false
+  chatUnread.value = false
+  chatState.value = 'idle'
+  chatMessages.value = []
+  chatDraft.value = ''
+  pendingChatQuestion.value = ''
+  streamedChatAnswer.value = ''
+  chatErrorKey.value = ''
+}
+
+async function openChat() {
+  if (!chatAvailable.value) return
+
+  chatOpen.value = true
+  chatUnread.value = false
+  await nextTick()
+  await scrollChatToBottom(true)
+  chatInput.value?.focus()
+}
+
+async function closeChat() {
+  chatOpen.value = false
+  await nextTick()
+  chatLauncher.value?.focus()
+}
+
+async function streamChat(question: string, clearDraft: boolean) {
+  if (chatState.value === 'streaming') return
+
+  const request = resultRequest.value
+  const recommendation = searchResult.value
+  if (!request || !recommendation) return
+
+  pendingChatQuestion.value = question
+  streamedChatAnswer.value = ''
+  chatErrorKey.value = ''
+  if (clearDraft) chatDraft.value = ''
+
+  const user = authUser.value
+  if (!user) {
+    chatState.value = 'error'
+    chatErrorKey.value = 'recommendations.chatLoginRequired'
+    return
+  }
+
+  chatController?.abort()
+  const controller = new AbortController()
+  chatController = controller
+  const isCurrent = () => chatController === controller && !controller.signal.aborted
+  const history = chatMessages.value.slice(-CHAT_HISTORY_LIMIT).map(({ role, content }) => ({
+    role,
+    content,
+  }))
+
+  chatState.value = 'streaming'
+  await scrollChatToBottom(true)
+
+  try {
+    const token = await user.getIdToken()
+    if (!isCurrent()) return
+
+    const response = await fetch(CHAT_STREAM_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        purchase: {
+          store_name: request.store_name,
+          product_name: request.product_name,
+          price: request.price,
+          currency: request.currency,
+        },
+        recommendation,
+        messages: history,
+        question,
+      }),
+      signal: controller.signal,
+    })
+    if (!isCurrent()) return
+
+    if (!response.ok) {
+      throw new StreamFailure(
+        response.status === 401 ? 'recommendations.chatLoginRequired' : 'recommendations.chatError',
+      )
+    }
+    if (!response.body) throw new StreamFailure('recommendations.chatError')
+
+    let receivedDone = false
+
+    await readSseStream(response.body, controller.signal, (event) => {
+      if (!isCurrent()) return
+
+      if (event.event === 'delta' && !receivedDone) {
+        const shouldFollow = isNearChatBottom()
+        streamedChatAnswer.value += parseChatDelta(event.data)
+        if (shouldFollow) void scrollChatToBottom(true)
+      } else if (event.event === 'done') {
+        receivedDone = true
+        return false
+      }
+    })
+
+    if (!isCurrent()) return
+    if (!receivedDone) throw new StreamFailure('recommendations.chatError')
+
+    chatMessages.value.push(
+      { id: nextChatMessageId++, role: 'user', content: question },
+      { id: nextChatMessageId++, role: 'assistant', content: streamedChatAnswer.value },
+    )
+    pendingChatQuestion.value = ''
+    streamedChatAnswer.value = ''
+    chatState.value = 'idle'
+    if (!chatOpen.value) chatUnread.value = true
+    else void scrollChatToBottom(true)
+  } catch (error) {
+    if (!isCurrent()) return
+
+    chatState.value = 'error'
+    chatErrorKey.value =
+      error instanceof StreamFailure && error.message === 'recommendations.chatLoginRequired'
+        ? 'recommendations.chatLoginRequired'
+        : 'recommendations.chatError'
+  } finally {
+    if (chatController === controller) chatController = null
+  }
+}
+
+function submitChatQuestion() {
+  if (!canSubmitChat.value) return
+  void streamChat(chatDraft.value.trim(), true)
+}
+
+function retryChatQuestion() {
+  if (chatState.value !== 'error' || !pendingChatQuestion.value) return
+  void streamChat(pendingChatQuestion.value, false)
+}
+
+function handleChatKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
+  event.preventDefault()
+  submitChatQuestion()
 }
 
 function resetPurchaseFeedback() {
@@ -349,6 +585,7 @@ async function recordPurchase(card: CardRef, saleId: string) {
 async function loadRecommendations() {
   if (!authReady.value || registrationPreferenceSaving.value || !validateSearch()) return
 
+  resetChat()
   activeController?.abort()
   const controller = new AbortController()
   activeController = controller
@@ -436,6 +673,7 @@ async function submitSearch() {
 
   if (!validateSearch()) {
     activeController?.abort()
+    resetChat()
     resetPurchaseFeedback()
     searchResult.value = null
     searchState.value = 'idle'
@@ -485,6 +723,7 @@ async function rerunSearchAfterPreferenceUpdate() {
   preferenceSearchSnapshot = null
 
   if (!hasValidSearch()) {
+    resetChat()
     resetPurchaseFeedback()
     searchResult.value = null
     resultRequest.value = null
@@ -506,6 +745,7 @@ function prepareRouteSearch() {
   requestErrorKey.value = ''
 
   if (!validateSearch()) {
+    resetChat()
     searchState.value = 'idle'
     return
   }
@@ -575,6 +815,7 @@ watch([() => route.fullPath, authReady, locale], prepareRouteSearch, { immediate
 
 onBeforeUnmount(() => {
   activeController?.abort()
+  chatController?.abort()
   purchaseRequestVersion += 1
 })
 </script>
@@ -1007,6 +1248,150 @@ onBeforeUnmount(() => {
         </p>
       </section>
     </main>
+
+    <div v-if="chatAvailable" class="recommendation-chat">
+      <button
+        v-if="!chatOpen"
+        ref="chatLauncher"
+        class="chat-launcher"
+        type="button"
+        data-testid="chat-launcher"
+        aria-controls="recommendation-chat-panel"
+        :aria-expanded="false"
+        @click="openChat"
+      >
+        <LoaderCircle
+          v-if="chatState === 'streaming'"
+          class="spinner"
+          :size="20"
+          aria-hidden="true"
+        />
+        <MessageCircle v-else :size="20" aria-hidden="true" />
+        <span>{{ t('recommendations.chatOpen') }}</span>
+        <span v-if="chatUnread" class="chat-launcher__unread" aria-hidden="true"></span>
+        <span v-if="chatUnread" class="visually-hidden">
+          {{ t('recommendations.chatUnread') }}
+        </span>
+      </button>
+
+      <section
+        v-else
+        id="recommendation-chat-panel"
+        class="chat-panel"
+        aria-labelledby="recommendation-chat-title"
+      >
+        <header class="chat-panel__header">
+          <div>
+            <MessageCircle :size="20" aria-hidden="true" />
+            <h2 id="recommendation-chat-title">{{ t('recommendations.chatTitle') }}</h2>
+          </div>
+          <span v-if="chatState === 'streaming'" class="chat-panel__status" role="status">
+            <LoaderCircle class="spinner" :size="16" aria-hidden="true" />
+            {{ t('recommendations.chatAnswering') }}
+          </span>
+          <button
+            class="chat-panel__close"
+            type="button"
+            :aria-label="t('recommendations.chatClose')"
+            @click="closeChat"
+          >
+            <X :size="20" aria-hidden="true" />
+          </button>
+        </header>
+
+        <div
+          ref="chatMessageList"
+          class="chat-messages"
+          role="log"
+          aria-live="polite"
+          :aria-busy="chatState === 'streaming'"
+        >
+          <p v-if="chatMessages.length === 0 && !pendingChatQuestion" class="chat-messages__hint">
+            {{ t('recommendations.chatHint') }}
+          </p>
+
+          <article
+            v-for="message in chatMessages"
+            :key="message.id"
+            class="chat-message"
+            :class="`chat-message--${message.role}`"
+            :data-testid="`chat-message-${message.role}`"
+          >
+            <p v-if="message.role === 'user'">{{ message.content }}</p>
+            <!-- Markdown 已停用原始 HTML 與圖片，並限制危險連結。 -->
+            <div
+              v-else
+              class="chat-message__markdown"
+              v-html="renderChatMarkdown(message.content)"
+            ></div>
+          </article>
+
+          <article
+            v-if="pendingChatQuestion"
+            class="chat-message chat-message--user"
+            data-testid="chat-message-user-pending"
+          >
+            <p>{{ pendingChatQuestion }}</p>
+          </article>
+
+          <article
+            v-if="pendingChatQuestion && chatState !== 'idle'"
+            class="chat-message chat-message--assistant"
+            data-testid="chat-message-assistant-pending"
+          >
+            <div
+              v-if="streamedChatAnswer"
+              class="chat-message__markdown"
+              v-html="renderChatMarkdown(streamedChatAnswer)"
+            ></div>
+            <p v-if="chatState === 'streaming' && !streamedChatAnswer" class="chat-message__wait">
+              <LoaderCircle class="spinner" :size="16" aria-hidden="true" />
+              {{ t('recommendations.chatAnswering') }}
+            </p>
+            <div v-else-if="chatState === 'error'" class="chat-message__error" role="alert">
+              <p>{{ chatError }}</p>
+              <button type="button" @click="retryChatQuestion">
+                <RotateCcw :size="15" aria-hidden="true" />
+                {{ t('recommendations.chatRetry') }}
+              </button>
+            </div>
+          </article>
+        </div>
+
+        <form class="chat-composer" @submit.prevent="submitChatQuestion">
+          <label class="visually-hidden" for="recommendation-chat-question">
+            {{ t('recommendations.chatQuestionLabel') }}
+          </label>
+          <textarea
+            id="recommendation-chat-question"
+            ref="chatInput"
+            v-model="chatDraft"
+            rows="2"
+            :maxlength="CHAT_QUESTION_LIMIT"
+            :placeholder="t('recommendations.chatPlaceholder')"
+            :disabled="chatState === 'streaming'"
+            @keydown="handleChatKeydown"
+          ></textarea>
+          <div class="chat-composer__footer">
+            <span>{{ chatDraft.length }} / {{ CHAT_QUESTION_LIMIT }}</span>
+            <button type="submit" :disabled="!canSubmitChat">
+              <LoaderCircle
+                v-if="chatState === 'streaming'"
+                class="spinner"
+                :size="17"
+                aria-hidden="true"
+              />
+              <Send v-else :size="17" aria-hidden="true" />
+              {{
+                chatState === 'streaming'
+                  ? t('recommendations.chatSending')
+                  : t('recommendations.chatSend')
+              }}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
 
     <footer class="page-footer">© 2026 Meichu Hackathon @ Google</footer>
   </div>
@@ -1473,6 +1858,293 @@ onBeforeUnmount(() => {
   color: var(--color-muted);
 }
 
+.recommendation-chat {
+  position: fixed;
+  z-index: 10;
+  right: max(var(--space-lg), env(safe-area-inset-right));
+  bottom: max(var(--space-lg), env(safe-area-inset-bottom));
+}
+
+.chat-launcher,
+.chat-panel__close,
+.chat-message__error button,
+.chat-composer button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--rule-hairline) solid transparent;
+  outline: var(--rule-focus) solid transparent;
+  outline-offset: var(--rule-hairline);
+  font-weight: 700;
+}
+
+.chat-launcher {
+  min-height: var(--control-height);
+  gap: var(--space-xs);
+  border-color: var(--color-action);
+  border-radius: var(--radius-pill);
+  padding-inline: var(--space-md);
+  background: var(--color-action);
+  box-shadow: var(--shadow-panel);
+  color: var(--color-action-ink);
+}
+
+.chat-launcher__unread {
+  width: 0.55rem;
+  height: 0.55rem;
+  border: var(--rule-hairline) solid var(--color-action-ink);
+  border-radius: 50%;
+  background: var(--color-error);
+}
+
+.chat-panel {
+  display: grid;
+  width: min(25rem, calc(100vw - (var(--space-lg) * 2)));
+  height: min(38rem, calc(100dvh - (var(--space-xl) * 2)));
+  overflow: hidden;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  border: var(--rule-hairline) solid var(--color-rule-strong);
+  border-radius: var(--radius-panel);
+  background: var(--color-paper);
+  box-shadow: var(--shadow-panel);
+}
+
+.chat-panel__header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-sm);
+  border-bottom: var(--rule-hairline) solid var(--color-rule);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-paper);
+}
+
+.chat-panel__header > div,
+.chat-panel__status {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.chat-panel__header h2 {
+  margin: 0;
+  overflow: hidden;
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-panel__status {
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.chat-panel__close {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-muted);
+}
+
+.chat-messages {
+  display: flex;
+  min-height: 0;
+  overflow-y: auto;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  background: var(--color-paper-2);
+  overscroll-behavior: contain;
+}
+
+.chat-messages__hint {
+  margin: auto;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  text-align: center;
+}
+
+.chat-message {
+  width: fit-content;
+  max-width: 88%;
+  box-sizing: border-box;
+  border: var(--rule-hairline) solid var(--color-rule);
+  border-radius: var(--radius-panel);
+  padding: var(--space-sm) var(--space-md);
+  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+
+.chat-message--user {
+  align-self: flex-end;
+  border-color: var(--color-action);
+  background: var(--color-action);
+  color: var(--color-action-ink);
+  border-end-end-radius: var(--space-2xs);
+}
+
+.chat-message--assistant {
+  align-self: flex-start;
+  background: var(--color-paper);
+  color: var(--color-ink-2);
+  border-end-start-radius: var(--space-2xs);
+}
+
+.chat-message > p,
+.chat-message__error p,
+.chat-message__markdown :deep(:first-child) {
+  margin-block-start: 0;
+}
+
+.chat-message > p,
+.chat-message__error p,
+.chat-message__markdown :deep(:last-child) {
+  margin-block-end: 0;
+}
+
+.chat-message--user > p {
+  white-space: pre-wrap;
+}
+
+.chat-message__markdown :deep(p),
+.chat-message__markdown :deep(ul),
+.chat-message__markdown :deep(ol),
+.chat-message__markdown :deep(pre),
+.chat-message__markdown :deep(blockquote) {
+  margin-block: var(--space-xs);
+}
+
+.chat-message__markdown :deep(ul),
+.chat-message__markdown :deep(ol) {
+  padding-inline-start: var(--space-lg);
+}
+
+.chat-message__markdown :deep(pre) {
+  overflow-x: auto;
+  border-radius: var(--radius-control);
+  padding: var(--space-sm);
+  background: var(--color-paper-3);
+}
+
+.chat-message__markdown :deep(a) {
+  color: var(--color-accent);
+  font-weight: 700;
+  text-underline-offset: 0.2em;
+}
+
+.chat-message__wait,
+.chat-message__error {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.chat-message__wait {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  color: var(--color-muted);
+}
+
+.chat-message__error {
+  margin-block-start: var(--space-xs);
+  color: var(--color-error);
+}
+
+.chat-message__error button {
+  min-height: 2rem;
+  justify-self: start;
+  gap: var(--space-2xs);
+  border-color: var(--color-error);
+  border-radius: var(--radius-control);
+  padding-inline: var(--space-sm);
+  background: transparent;
+  color: var(--color-error);
+}
+
+.chat-composer {
+  display: grid;
+  gap: var(--space-xs);
+  border-top: var(--rule-hairline) solid var(--color-rule);
+  padding: var(--space-sm);
+  background: var(--color-paper);
+}
+
+.chat-composer textarea {
+  width: 100%;
+  min-height: 4.5rem;
+  resize: vertical;
+  box-sizing: border-box;
+  border: var(--rule-hairline) solid var(--color-rule-strong);
+  border-radius: var(--radius-control);
+  outline: var(--rule-focus) solid transparent;
+  outline-offset: var(--rule-hairline);
+  padding: var(--space-sm);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font: inherit;
+  line-height: 1.5;
+}
+
+.chat-composer textarea:focus {
+  border-color: var(--color-accent);
+  outline-color: var(--color-focus);
+}
+
+.chat-composer textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.chat-composer__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.chat-composer__footer > span {
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.chat-composer button {
+  min-height: 2.25rem;
+  gap: var(--space-xs);
+  border-color: var(--color-action);
+  border-radius: var(--radius-control);
+  padding-inline: var(--space-md);
+  background: var(--color-action);
+  color: var(--color-action-ink);
+}
+
+.chat-composer button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.chat-launcher:focus-visible,
+.chat-panel__close:focus-visible,
+.chat-message__error button:focus-visible,
+.chat-composer button:focus-visible {
+  outline-color: var(--color-focus);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .page-footer {
   border-top: var(--rule-hairline) solid var(--color-rule);
   padding-block: var(--space-md);
@@ -1488,6 +2160,38 @@ onBeforeUnmount(() => {
   .purchase-button:hover:not(:disabled) {
     border-color: var(--color-action-hover);
     background: var(--color-action-hover);
+  }
+
+  .chat-launcher:hover,
+  .chat-composer button:hover:not(:disabled) {
+    border-color: var(--color-action-hover);
+    background: var(--color-action-hover);
+  }
+
+  .chat-panel__close:hover {
+    background: var(--color-paper-2);
+    color: var(--color-ink);
+  }
+
+  .chat-message__error button:hover {
+    background: var(--color-paper-2);
+  }
+}
+
+@media (max-width: 39.999rem) {
+  .recommendation-chat {
+    right: max(var(--space-md), env(safe-area-inset-right));
+    bottom: max(var(--space-md), env(safe-area-inset-bottom));
+    left: max(var(--space-md), env(safe-area-inset-left));
+  }
+
+  .chat-launcher {
+    float: right;
+  }
+
+  .chat-panel {
+    width: 100%;
+    height: min(34rem, calc(100dvh - (var(--space-lg) * 2)));
   }
 }
 
@@ -1529,7 +2233,11 @@ onBeforeUnmount(() => {
   .query-field input,
   .query-submit,
   .state-panel button,
-  .purchase-button {
+  .purchase-button,
+  .chat-launcher,
+  .chat-panel__close,
+  .chat-message__error button,
+  .chat-composer button {
     transition-duration: var(--dur-reduced);
   }
 

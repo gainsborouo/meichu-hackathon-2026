@@ -25,6 +25,7 @@ vi.mock('@/firebase', () => ({ auth: {} }))
 vi.mock('@/services/api', () => ({ api: apiMocks }))
 
 const STREAM_URL = '/api/v1/recommendations/stream'
+const CHAT_STREAM_URL = '/api/v1/recommendations/chat/stream'
 
 const bestNowCard = {
   id: 'card-1',
@@ -369,6 +370,283 @@ describe('RecommendationsView', () => {
       locale: 'zh-TW',
     })
     expect(JSON.parse(init.body as string)).not.toHaveProperty('include_unowned')
+  })
+
+  it('opens the chat and streams an answer with the bound recommendation context', async () => {
+    const answer = [
+      sse('delta', { text: '這張卡的回饋上限是每月 500 點。\n\n' }),
+      sse('delta', {
+        text: '[官方活動頁](https://www.esunbank.com/promo) <script>alert(1)</script> ![圖](https://example.com/a.png)',
+      }),
+      sse('done', {}),
+    ].join('')
+    fetchMock
+      .mockResolvedValueOnce(okResponse(chunked(fullStream)))
+      .mockResolvedValueOnce(okResponse(chunked(answer)))
+
+    const { user, wrapper } = await mountRecommendations()
+
+    expect(wrapper.get('[data-testid="chat-launcher"]').text()).toContain('詢問這次推薦')
+    await wrapper.get('[data-testid="chat-launcher"]').trigger('click')
+    expect(wrapper.get('.chat-messages__hint').text()).toContain('這次推薦')
+    await wrapper.get<HTMLInputElement>('#recommendation-platform').setValue('尚未送出的新地點')
+
+    const input = wrapper.get<HTMLTextAreaElement>('#recommendation-chat-question')
+    expect(input.attributes('maxlength')).toBe('2000')
+    await input.setValue('x'.repeat(2001))
+    await wrapper.get('.chat-composer').trigger('submit')
+    expect(fetchMock).toHaveBeenCalledOnce()
+    await input.setValue('這個 3% 有上限嗎？')
+    await input.trigger('keydown', { key: 'Enter', shiftKey: true })
+    expect(fetchMock).toHaveBeenCalledOnce()
+    await input.trigger('keydown', { key: 'Enter' })
+    await settle()
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(user!.getIdToken).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[1]![0]).toBe(CHAT_STREAM_URL)
+    const init = requestInit(1)
+    expect(init.headers).toEqual({
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+      Authorization: 'Bearer firebase-token',
+    })
+    expect(init.signal).toBeInstanceOf(AbortSignal)
+    expect(JSON.parse(init.body as string)).toEqual({
+      purchase: {
+        store_name: 'momo',
+        product_name: 'AirPods Pro',
+        price: 7490,
+        currency: 'TWD',
+      },
+      recommendation,
+      messages: [],
+      question: '這個 3% 有上限嗎？',
+    })
+
+    const response = wrapper.get('[data-testid="chat-message-assistant"]')
+    expect(response.text()).toContain('每月 500 點')
+    expect(response.find('script').exists()).toBe(false)
+    expect(response.find('img').exists()).toBe(false)
+    const source = response.get('a[href="https://www.esunbank.com/promo"]')
+    expect(source.attributes('target')).toBe('_blank')
+    expect(source.attributes('rel')).toBe('noopener noreferrer')
+  })
+
+  it('sends only the latest 12 completed chat messages', async () => {
+    const answer = sse('delta', { text: '回答' }) + sse('done', {})
+    fetchMock.mockImplementation((url) =>
+      Promise.resolve(okResponse(chunked(String(url) === CHAT_STREAM_URL ? answer : fullStream))),
+    )
+    const { wrapper } = await mountRecommendations()
+    await wrapper.get('[data-testid="chat-launcher"]').trigger('click')
+
+    const input = wrapper.get<HTMLTextAreaElement>('#recommendation-chat-question')
+    for (let index = 1; index <= 8; index += 1) {
+      await input.setValue(`問題 ${index}`)
+      await wrapper.get('.chat-composer').trigger('submit')
+      await settle()
+    }
+
+    const body = JSON.parse(requestInit(8).body as string)
+    expect(body.question).toBe('問題 8')
+    expect(body.messages).toHaveLength(12)
+    expect(body.messages[0]).toEqual({ role: 'user', content: '問題 2' })
+    expect(body.messages.at(-1)).toEqual({ role: 'assistant', content: '回答' })
+    expect(wrapper.findAll('[data-testid="chat-message-user"]')).toHaveLength(8)
+  })
+
+  it('keeps a failed question for retry without duplicating it', async () => {
+    const answer = sse('delta', { text: '重試成功' }) + sse('done', {})
+    fetchMock
+      .mockResolvedValueOnce(okResponse(chunked(fullStream)))
+      .mockResolvedValueOnce(failedResponse(503))
+      .mockResolvedValueOnce(okResponse(chunked(answer)))
+    const { wrapper } = await mountRecommendations()
+    await wrapper.get('[data-testid="chat-launcher"]').trigger('click')
+    await wrapper.get<HTMLTextAreaElement>('#recommendation-chat-question').setValue('原問題')
+    await wrapper.get('.chat-composer').trigger('submit')
+    await settle()
+
+    expect(wrapper.get('.chat-message__error').text()).toContain('無法取得回答')
+    expect(wrapper.findAll('[data-testid="chat-message-user-pending"]')).toHaveLength(1)
+
+    await wrapper.get('.chat-message__error button').trigger('click')
+    await settle()
+
+    expect(JSON.parse(requestInit(1).body as string).question).toBe('原問題')
+    expect(JSON.parse(requestInit(2).body as string).question).toBe('原問題')
+    expect(wrapper.find('[data-testid="chat-message-user-pending"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-testid="chat-message-user"]')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="chat-message-assistant"]').text()).toContain('重試成功')
+  })
+
+  it('discards a failed exchange when a new question is sent', async () => {
+    const answer = sse('delta', { text: '新回答' }) + sse('done', {})
+    fetchMock
+      .mockResolvedValueOnce(okResponse(chunked(fullStream)))
+      .mockResolvedValueOnce(failedResponse(503))
+      .mockResolvedValueOnce(okResponse(chunked(answer)))
+    const { wrapper } = await mountRecommendations()
+    await wrapper.get('[data-testid="chat-launcher"]').trigger('click')
+    const input = wrapper.get<HTMLTextAreaElement>('#recommendation-chat-question')
+
+    await input.setValue('失敗的問題')
+    await wrapper.get('.chat-composer').trigger('submit')
+    await settle()
+    await input.setValue('新的問題')
+    await wrapper.get('.chat-composer').trigger('submit')
+    await settle()
+
+    const body = JSON.parse(requestInit(2).body as string)
+    expect(body.messages).toEqual([])
+    expect(body.question).toBe('新的問題')
+    expect(wrapper.text()).not.toContain('失敗的問題')
+    expect(wrapper.get('[data-testid="chat-message-user"]').text()).toBe('新的問題')
+  })
+
+  it('continues a collapsed stream and marks the completed answer as unread', async () => {
+    const stream = controlledStream()
+    fetchMock
+      .mockResolvedValueOnce(okResponse(chunked(fullStream)))
+      .mockResolvedValueOnce(okResponse(stream.body))
+    const { wrapper } = await mountRecommendations()
+    await wrapper.get('[data-testid="chat-launcher"]').trigger('click')
+    await wrapper.get<HTMLTextAreaElement>('#recommendation-chat-question').setValue('有上限嗎？')
+    await wrapper.get('.chat-composer').trigger('submit')
+    await settle()
+
+    await wrapper.get('.chat-panel__close').trigger('click')
+    expect(stream.isCancelled()).toBe(false)
+    expect(wrapper.find('[data-testid="chat-launcher"] .spinner').exists()).toBe(true)
+
+    stream.push(sse('delta', { text: '有，每月 500 點。' }) + sse('done', {}))
+    stream.close()
+    await settle()
+
+    expect(wrapper.find('.chat-launcher__unread').exists()).toBe(true)
+    await wrapper.get('[data-testid="chat-launcher"]').trigger('click')
+    expect(wrapper.find('.chat-launcher__unread').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="chat-message-assistant"]').text()).toContain('500 點')
+  })
+
+  it('follows chat deltas only when the message list is near the bottom', async () => {
+    const stream = controlledStream()
+    fetchMock
+      .mockResolvedValueOnce(okResponse(chunked(fullStream)))
+      .mockResolvedValueOnce(okResponse(stream.body))
+    const { wrapper } = await mountRecommendations()
+    await wrapper.get('[data-testid="chat-launcher"]').trigger('click')
+    await wrapper.get<HTMLTextAreaElement>('#recommendation-chat-question').setValue('問題')
+    await wrapper.get('.chat-composer').trigger('submit')
+    await settle()
+
+    const list = wrapper.get<HTMLElement>('.chat-messages').element
+    Object.defineProperties(list, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 500 },
+      scrollTop: { configurable: true, value: 0, writable: true },
+    })
+
+    stream.push(sse('delta', { text: '第一段' }))
+    await settle()
+    expect(list.scrollTop).toBe(0)
+
+    list.scrollTop = 400
+    stream.push(sse('delta', { text: '第二段' }))
+    await settle()
+    expect(list.scrollTop).toBe(500)
+
+    stream.push(sse('done', {}))
+    stream.close()
+    await settle()
+  })
+
+  it('cancels and clears chat when a new recommendation starts', async () => {
+    const chatStream = controlledStream()
+    fetchMock
+      .mockResolvedValueOnce(okResponse(chunked(fullStream)))
+      .mockResolvedValueOnce(okResponse(chatStream.body))
+      .mockResolvedValueOnce(okResponse(chunked(fullStream)))
+    const { wrapper } = await mountRecommendations()
+    await wrapper.get('[data-testid="chat-launcher"]').trigger('click')
+    await wrapper.get<HTMLTextAreaElement>('#recommendation-chat-question').setValue('舊問題')
+    await wrapper.get('.chat-composer').trigger('submit')
+    await settle()
+
+    await wrapper.get<HTMLInputElement>('#recommendation-platform').setValue('蝦皮')
+    await wrapper.get('form.query-form').trigger('submit')
+    await settle()
+
+    expect(chatStream.isCancelled()).toBe(true)
+    expect(wrapper.find('[data-testid="chat-launcher"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="chat-launcher"]').trigger('click')
+    expect(wrapper.find('.chat-messages__hint').exists()).toBe(true)
+    expect(wrapper.find('[data-testid^="chat-message-"]').exists()).toBe(false)
+  })
+
+  it('shows chat for an empty recommendation and reports invalid chat streams', async () => {
+    const emptyRecommendation = {
+      ...recommendation,
+      best_now: null,
+      wait_suggestion: null,
+      explanation: '目前沒有適用優惠。',
+    }
+    fetchMock
+      .mockResolvedValueOnce(
+        okResponse(chunked(sse('recommendation', emptyRecommendation) + sse('done', {}))),
+      )
+      .mockResolvedValueOnce(okResponse(chunked(sse('delta', { value: '錯誤格式' }))))
+    const { wrapper } = await mountRecommendations()
+
+    expect(wrapper.find('[data-testid="chat-launcher"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="chat-launcher"]').trigger('click')
+    await wrapper.get<HTMLTextAreaElement>('#recommendation-chat-question').setValue('為什麼？')
+    await wrapper.get('.chat-composer').trigger('submit')
+    await settle()
+
+    expect(wrapper.get('.chat-message__error').text()).toContain('無法取得回答')
+  })
+
+  it('requires a done event and shows the sign-in error for a chat 401', async () => {
+    fetchMock
+      .mockResolvedValueOnce(okResponse(chunked(fullStream)))
+      .mockResolvedValueOnce(okResponse(chunked(sse('delta', { text: '未完成回答' }))))
+      .mockResolvedValueOnce(failedResponse(401))
+    const { wrapper } = await mountRecommendations()
+    await wrapper.get('[data-testid="chat-launcher"]').trigger('click')
+    const input = wrapper.get<HTMLTextAreaElement>('#recommendation-chat-question')
+
+    await input.setValue('第一題')
+    await wrapper.get('.chat-composer').trigger('submit')
+    await settle()
+    expect(wrapper.get('[data-testid="chat-message-assistant-pending"]').text()).toContain(
+      '未完成回答',
+    )
+    expect(wrapper.get('.chat-message__error').text()).toContain('無法取得回答')
+
+    await input.setValue('第二題')
+    await wrapper.get('.chat-composer').trigger('submit')
+    await settle()
+    expect(wrapper.get('.chat-message__error').text()).toContain('登入狀態已失效')
+  })
+
+  it('cancels the chat stream when the page unmounts', async () => {
+    const stream = controlledStream()
+    fetchMock
+      .mockResolvedValueOnce(okResponse(chunked(fullStream)))
+      .mockResolvedValueOnce(okResponse(stream.body))
+    const { wrapper } = await mountRecommendations()
+    await wrapper.get('[data-testid="chat-launcher"]').trigger('click')
+    await wrapper.get<HTMLTextAreaElement>('#recommendation-chat-question').setValue('問題')
+    await wrapper.get('.chat-composer').trigger('submit')
+    await settle()
+
+    wrapper.unmount()
+    mountedWrappers.splice(mountedWrappers.indexOf(wrapper), 1)
+    await settle()
+
+    expect(stream.isCancelled()).toBe(true)
   })
 
   it('cancels and repeats a valid search when the locale changes', async () => {
