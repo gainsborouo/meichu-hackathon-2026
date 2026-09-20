@@ -1,0 +1,10 @@
+{
+  "extName": {
+    "message": "最佳一刷",
+    "description": "Extension name shown in the browser's extension list and toolbar."
+  },
+  "extDescription": {
+    "message": "在結帳頁依你持有的信用卡顯示回饋推薦。",
+    "description": "Extension description shown in the browser's extension list."
+  }
+}

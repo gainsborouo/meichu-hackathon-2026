@@ -1,7 +1,19 @@
 import { browser } from 'wxt/browser';
 import { defineBackground } from 'wxt/utils/define-background';
-import { getAuthenticatedUser, getCurrentUser, signInWithGoogle, signOutCurrentUser } from '../lib/auth';
-import { getRecommendation } from '../lib/backend';
+import {
+  getAuthenticatedUser,
+  getCurrentUser,
+  getGoogleAccessToken,
+  signInWithGoogle,
+  signOutCurrentUser,
+} from '../lib/auth';
+import {
+  createReminder,
+  getRecommendation,
+  getUserSettings,
+  ReminderError,
+  setRegistrationCampaigns,
+} from '../lib/backend';
 import { RecommendationError } from '../lib/types';
 import { isCheckoutRequest } from '../lib/validation';
 import { platformFromUrl } from '../lib/platform';
@@ -72,6 +84,49 @@ export default defineBackground(() => {
       }, () => sendResponse({ error: 'Sign-out failed' }));
       return true;
     }
+    // Settings live behind the same ID token as everything else, so the popup asks
+    // the background rather than holding a token itself. Extension pages only.
+    if (message?.type === 'settings:get' && extensionPage) {
+      void getAuthenticatedUser()
+        .then(({ idToken }) => getUserSettings(idToken))
+        .then(settings => sendResponse({ settings }), error => sendResponse({
+          error: error instanceof Error ? error.message : 'Could not read settings',
+          reason: error instanceof RecommendationError ? error.reason : 'failed',
+        }));
+      return true;
+    }
+    if (message?.type === 'settings:set-registration-campaigns' && extensionPage
+      && typeof message.enabled === 'boolean') {
+      void getAuthenticatedUser()
+        .then(({ idToken }) => setRegistrationCampaigns(idToken, message.enabled))
+        // The reply is the stored state, so the popup shows what the server has
+        // rather than assuming the write landed as sent.
+        .then(settings => sendResponse({ settings }), error => sendResponse({
+          error: error instanceof Error ? error.message : 'Could not update settings',
+          reason: error instanceof RecommendationError ? error.reason : 'failed',
+        }));
+      return true;
+    }
+    // "Buy it later": create the calendar reminder the user just accepted. The
+    // Google access token goes with it so the backend can write on their behalf.
+    if (message?.type === 'reminder:create' && message.wait) {
+      void getAuthenticatedUser()
+        .then(({ idToken }) => createReminder(message.wait, idToken, getGoogleAccessToken()))
+        .then(
+          outcome => sendResponse({ ...outcome }),
+          error => {
+            console.warn('[最佳一刷] reminder failed:',
+              error instanceof Error ? `${error.name}: ${error.message}` : String(error));
+            sendResponse({
+              error: error instanceof Error ? error.message : 'Reminder failed',
+              reason: error instanceof ReminderError ? error.reason
+                : error instanceof RecommendationError && error.reason === 'signed-out'
+                  ? 'signed-out' : 'failed',
+            });
+          },
+        );
+      return true;
+    }
     if (message?.type !== 'recommend') return;
     // Every recommendation must come from a tab whose own url matches the
     // platform it claims, so a page cannot ask for a recommendation on another
@@ -90,11 +145,23 @@ export default defineBackground(() => {
     }
     // The backend identifies the user from the ID token, so no userId is added
     // to the body; requiring a signed-in user still gates the request here.
-    const { requestId, platform, product, payable } = message.request;
+    const { requestId, platform, product, payable, pageLocale } = message.request;
+    // Progress cannot ride on sendResponse, which answers once. Push it back to
+    // the tab that asked, tagged with its requestId so a stale stream cannot
+    // relabel a newer one. Failures are ignored: the tab may have closed, and
+    // losing a progress update must never fail the recommendation.
+    const tabId = sender.tab?.id;
+    const reportStage = (stage: string) => {
+      if (tabId === undefined) return;
+      void browser.tabs.sendMessage(tabId, { type: 'recommend:stage', requestId, stage })
+        .catch(() => undefined);
+    };
     void getAuthenticatedUser()
-      .then(({ idToken }) => getRecommendation({ platform, product, payable }, idToken))
+      .then(({ idToken }) => getRecommendation(
+        { platform, product, payable, pageLocale }, idToken, reportStage,
+      ))
       .then(
-        recommendation => sendResponse({ requestId, recommendation }),
+        outcome => sendResponse({ requestId, recommendation: outcome.best, wait: outcome.wait }),
         // `reason` rides alongside the message: an Error does not survive
         // runtime messaging, so the panel would otherwise lose the distinction.
         error => {

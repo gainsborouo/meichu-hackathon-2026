@@ -1,6 +1,17 @@
 import { browser } from 'wxt/browser';
 import { RecommendationError } from './types';
-import type { CheckoutRequest, FailureReason, Recommendation } from './types';
+import type {
+  CheckoutRequest,
+  FailureReason,
+  Recommendation,
+  ReminderState,
+  WaitSuggestion,
+} from './types';
+
+// Must outlast lib/backend.ts's fetch abort (285s), which itself outlasts the
+// backend's live lookup plus model run -- otherwise a recommendation still being
+// computed is reported as a timeout here and the real reason never surfaces.
+const MESSAGE_TIMEOUT_MS = 295_000;
 
 const FAILURE_REASONS: readonly FailureReason[] = ['signed-out', 'no-cards', 'failed'];
 
@@ -10,7 +21,7 @@ function failureReason(value: unknown): FailureReason {
 
 export async function requestRecommendation(
   request: CheckoutRequest,
-): Promise<Recommendation> {
+): Promise<{ best: Recommendation; wait: WaitSuggestion | null }> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const response = await Promise.race([
@@ -18,7 +29,7 @@ export async function requestRecommendation(
       new Promise<never>((_, reject) => {
         timer = setTimeout(
           () => reject(new RecommendationError('failed', 'Recommendation timed out')),
-          10_000,
+          MESSAGE_TIMEOUT_MS,
         );
       }),
     ]);
@@ -33,8 +44,31 @@ export async function requestRecommendation(
       || !response.recommendation?.card?.name) {
       throw new RecommendationError('failed', 'Invalid recommendation response');
     }
-    return response.recommendation;
+    return { best: response.recommendation, wait: response.wait ?? null };
   } finally {
     if (timer) clearTimeout(timer);
+  }
+}
+
+/**
+ * Asks the background to create the "buy it later" reminder.
+ *
+ * Returns the resulting panel state rather than throwing: the caller renders it, and
+ * every outcome here is something the user should see -- including `not-connected`,
+ * which needs a different instruction from a transient failure.
+ */
+export async function createReminder(wait: WaitSuggestion): Promise<ReminderState> {
+  try {
+    const response = await browser.runtime.sendMessage({ type: 'reminder:create', wait });
+    if (response?.error) {
+      const reason = response.reason;
+      return {
+        status: 'error',
+        reason: reason === 'not-connected' || reason === 'signed-out' ? reason : 'failed',
+      };
+    }
+    return { status: 'saved', alreadyNotified: response?.alreadyNotified === true };
+  } catch {
+    return { status: 'error', reason: 'failed' };
   }
 }

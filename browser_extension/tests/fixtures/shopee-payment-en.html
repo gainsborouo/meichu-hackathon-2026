@@ -1,0 +1,23 @@
+<!-- Structure observed on the English checkout page; hashed classes and personal
+     data omitted. Kept alongside the Chinese fixture because the two differ in
+     ways that broke extraction: the heading label carries a trailing colon, the
+     same label appears on both an h2 and an h3, the product name's span holds two
+     children rather than one, and the payment labels are English. -->
+<div role="main">
+  <div><h2>Products Ordered</h2>
+    <div><picture><img alt="product image"></picture><span><span>Blanket Dormitory Single Bedding</span><span>Class A</span></span></div>
+  </div>
+  <div><h2>Payment Method</h2><div><div class="checkout-payment-method-main">
+    <div role="radiogroup">
+      <button type="button" role="radio" aria-label="Credit / Debit Card" class="product-variation">Credit / Debit Card</button>
+      <button type="button" role="radio" aria-label="Credit Card Installment" class="product-variation">Credit Card Installment</button>
+    </div>
+  </div></div></div>
+  <div><h2>Total Payment:</h2>
+    <h3>Merchandise Subtotal</h3><div>$450</div>
+    <h3>Shipping Subtotal</h3><div>$45</div>
+    <h3>Item Discount</h3><div>-$180</div>
+    <h3>Total Payment:</h3><div>$270</div>
+  </div>
+  <button type="button">Place Order</button>
+</div>

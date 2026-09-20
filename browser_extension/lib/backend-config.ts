@@ -9,7 +9,10 @@ const DEFAULT_BACKEND_URL = 'http://localhost:8000';
 
 export const BACKEND_URL = import.meta.env.WXT_BACKEND_URL || DEFAULT_BACKEND_URL;
 
-// POST /api/v1/search ranks the user's cards for one purchase
-// (backend/app/api/v1/routes/search.py). The prefix comes from
-// backend/app/core/config.py api_v1_prefix.
-export const SEARCH_ENDPOINT = new URL('/api/v1/search', BACKEND_URL).href;
+// POST /api/v1/recommendations/stream picks the held card to use for one
+// purchase (backend/app/api/v1/routes/recommendations.py). It answers as a
+// Server-Sent Events stream, not a single JSON body -- the model run behind it
+// can take a while, so progress arrives before the result. The prefix comes
+// from backend/app/core/config.py api_v1_prefix.
+export const RECOMMENDATION_ENDPOINT =
+  new URL('/api/v1/recommendations/stream', BACKEND_URL).href;
