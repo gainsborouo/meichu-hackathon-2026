@@ -22,12 +22,16 @@ const bestNowCard = {
   id: 'card-1',
   bank_name: '玉山銀行',
   name: 'Unicard',
+  issuer_en: 'E.SUN Bank',
+  name_en: 'E.SUN Unicard',
 }
 
 const waitCard = {
   id: 'card-2',
   bank_name: '台新銀行',
   name: '@GoGo 卡',
+  issuer_en: 'Taishin International Bank',
+  name_en: '@GoGo card',
 }
 
 const recommendation = {
@@ -249,8 +253,9 @@ describe('RecommendationsView', () => {
     expect(JSON.parse(requestInit(1).body as string)).toMatchObject({ locale: 'en-US' })
     expect(wrapper.get('#ranking-title').text()).toBe('Best Card Right Now')
     expect(wrapper.get('[data-testid="best-now"]').text()).toContain('NT$224.70')
+    expect(wrapper.get('[data-testid="best-now"]').text()).toContain('E.SUN Bank')
     expect(wrapper.get('[data-testid="record-purchase-best-now"]').text()).toContain(
-      'Record purchase with Unicard',
+      'Record purchase with E.SUN Unicard',
     )
   })
 

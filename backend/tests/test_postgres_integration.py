@@ -34,7 +34,7 @@ async def test_postgres_bootstrap_catalog_and_downgrade(monkeypatch) -> None:
     try:
         await asyncio.gather(initialize_database(), initialize_database())
         async with target_engine.connect() as connection:
-            assert await connection.scalar(text("SELECT count(*) FROM cards")) == 94
+            assert await connection.scalar(text("SELECT count(*) FROM cards")) == 47
             revision = await connection.scalar(text("SELECT version_num FROM alembic_version"))
             assert (
                 revision == ScriptDirectory.from_config(Config(str(ALEMBIC_INI))).get_current_head()
@@ -48,12 +48,12 @@ async def test_postgres_bootstrap_catalog_and_downgrade(monkeypatch) -> None:
                 first = await import_card_catalog(session, load_card_catalog())
             async with session.begin():
                 second = await import_card_catalog(session, load_card_catalog())
-            assert first["created"] == 94 and second["created"] == 0
-            assert await session.scalar(select(func.count()).select_from(Card)) == 94
+            assert first["created"] == 47 and second["created"] == 0
+            assert await session.scalar(select(func.count()).select_from(Card)) == 47
 
         await asyncio.to_thread(command.downgrade, Config(str(ALEMBIC_INI)), "0002")
         async with target_engine.connect() as connection:
-            assert await connection.scalar(text("SELECT count(*) FROM cards")) == 94
+            assert await connection.scalar(text("SELECT count(*) FROM cards")) == 47
     finally:
         await dispose_engine()
         await target_engine.dispose()

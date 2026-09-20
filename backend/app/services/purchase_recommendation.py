@@ -95,6 +95,8 @@ def _card_ref(card) -> dict[str, Any]:
         "id": str(card.id),
         "bank_name": card.bank_name,
         "name": card.name,
+        "issuer_en": card.issuer_en,
+        "name_en": card.name_en,
         "artwork_id": card.artwork_id,
     }
 

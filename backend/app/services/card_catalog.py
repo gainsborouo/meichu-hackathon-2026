@@ -21,9 +21,21 @@ CATALOG_FIELDS = (
     "official_image_url",
     "image_is_composite",
 )
+CARD_NAME_FIELDS = (
+    "artwork_id",
+    "bank_name",
+    "name",
+    "issuer_en",
+    "name_en",
+    "official_source_url",
+)
 DEFAULT_CARD_CATALOG_PATH = (
     Path(__file__).resolve().parents[2] / "alembic" / "data" / "0003_card_catalog.csv"
 )
+DEFAULT_CARD_NAMES_PATH = (
+    Path(__file__).resolve().parents[2] / "alembic" / "data" / "0007_card_names.csv"
+)
+RETIRED_BANK_NAMES = frozenset({"第一銀行", "遠東商銀"})
 CARD_UUID_NAMESPACE = uuid.UUID("f8cbb032-9362-5de4-b3b1-3f234b1f199e")
 ALIASES_BY_ARTWORK_ID = {
     "ctbc-linepay-ve8710": ("中國信託商業銀行", "LINE Pay 聯名卡"),
@@ -41,11 +53,22 @@ class CardCatalogRow:
     name: str
     display_name: str
     issuer_en: str
+    name_en: str | None
     variant: str | None
     network: str | None
     tier: str | None
     official_image_url: str
     image_is_composite: bool
+
+
+@dataclass(frozen=True)
+class CardNameRow:
+    artwork_id: str | None
+    bank_name: str
+    name: str
+    issuer_en: str
+    name_en: str | None
+    official_source_url: str | None
 
 
 def _required(value: str | None, field: str, line: int) -> str:
@@ -62,7 +85,61 @@ def _boolean(value: str | None, line: int) -> bool:
     raise ValueError(f"line {line}: image_is_composite must be true or false")
 
 
+def load_card_names(path: Path = DEFAULT_CARD_NAMES_PATH) -> list[CardNameRow]:
+    with path.open(encoding="utf-8", newline="") as source:
+        reader = csv.DictReader(source)
+        if tuple(reader.fieldnames or ()) != CARD_NAME_FIELDS:
+            raise ValueError("card name metadata has an invalid header")
+
+        rows: list[CardNameRow] = []
+        artwork_ids: set[str] = set()
+        card_names: set[tuple[str, str]] = set()
+        for line, raw in enumerate(reader, 2):
+            if None in raw or any(value is None for value in raw.values()):
+                raise ValueError(f"line {line}: card name metadata row does not match the header")
+            artwork_id = raw["artwork_id"] or None
+            bank_name = _required(raw["bank_name"], "bank_name", line)
+            name = _required(raw["name"], "name", line)
+            issuer_en = _required(raw["issuer_en"], "issuer_en", line)
+            name_en = raw["name_en"] or None
+            official_source_url = raw["official_source_url"] or None
+            key = (bank_name, name)
+
+            if artwork_id is not None and artwork_id in artwork_ids:
+                raise ValueError(f"line {line}: duplicate artwork_id {artwork_id}")
+            if key in card_names:
+                raise ValueError(f"line {line}: duplicate bank_name and name")
+            if (name_en is None) != (official_source_url is None):
+                raise ValueError(
+                    f"line {line}: name_en and official_source_url must both be set or empty"
+                )
+            if official_source_url is not None and not official_source_url.startswith("https://"):
+                raise ValueError(f"line {line}: official_source_url must use https")
+
+            if artwork_id is not None:
+                artwork_ids.add(artwork_id)
+            card_names.add(key)
+            rows.append(
+                CardNameRow(
+                    artwork_id=artwork_id,
+                    bank_name=bank_name,
+                    name=name,
+                    issuer_en=issuer_en,
+                    name_en=name_en,
+                    official_source_url=official_source_url,
+                )
+            )
+    return rows
+
+
 def load_card_catalog(path: Path = DEFAULT_CARD_CATALOG_PATH) -> list[CardCatalogRow]:
+    is_default_catalog = path == DEFAULT_CARD_CATALOG_PATH
+    names_by_artwork = {
+        row.artwork_id: row
+        for row in load_card_names()
+        if is_default_catalog and row.artwork_id is not None
+    }
+
     with path.open(encoding="utf-8", newline="") as source:
         reader = csv.DictReader(source)
         if tuple(reader.fieldnames or ()) != CATALOG_FIELDS:
@@ -77,6 +154,7 @@ def load_card_catalog(path: Path = DEFAULT_CARD_CATALOG_PATH) -> list[CardCatalo
             artwork_id = _required(raw["artwork_id"], "artwork_id", line)
             bank_name = _required(raw["bank_name"], "bank_name", line)
             name = _required(raw["name"], "name", line)
+            issuer_en = _required(raw["issuer_en"], "issuer_en", line)
             key = (bank_name, name)
             if artwork_id in artwork_ids:
                 raise ValueError(f"line {line}: duplicate artwork_id {artwork_id}")
@@ -84,13 +162,30 @@ def load_card_catalog(path: Path = DEFAULT_CARD_CATALOG_PATH) -> list[CardCatalo
                 raise ValueError(f"line {line}: duplicate bank_name and name")
             artwork_ids.add(artwork_id)
             card_names.add(key)
+            if is_default_catalog and bank_name in RETIRED_BANK_NAMES:
+                continue
+
+            name_en = None
+            if is_default_catalog:
+                metadata = names_by_artwork.get(artwork_id)
+                if metadata is None:
+                    raise ValueError(f"line {line}: missing card name metadata for {artwork_id}")
+                if (metadata.bank_name, metadata.name, metadata.issuer_en) != (
+                    bank_name,
+                    name,
+                    issuer_en,
+                ):
+                    raise ValueError(f"line {line}: card name metadata does not match {artwork_id}")
+                name_en = metadata.name_en
+
             rows.append(
                 CardCatalogRow(
                     artwork_id=artwork_id,
                     bank_name=bank_name,
                     name=name,
                     display_name=_required(raw["display_name"], "display_name", line),
-                    issuer_en=_required(raw["issuer_en"], "issuer_en", line),
+                    issuer_en=issuer_en,
+                    name_en=name_en,
                     variant=raw["variant"] or None,
                     network=raw["network"] or None,
                     tier=raw["tier"] or None,
@@ -145,6 +240,7 @@ async def import_card_catalog(session: AsyncSession, rows: list[CardCatalogRow])
         card.artwork_id = row.artwork_id
         card.display_name = row.display_name
         card.issuer_en = row.issuer_en
+        card.name_en = row.name_en
         card.variant = row.variant
         card.network = row.network
         card.tier = row.tier

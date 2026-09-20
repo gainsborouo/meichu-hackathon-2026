@@ -101,6 +101,10 @@ async def world(session):
     uni = await cards_repo.get_or_create_card(session, bank_name="玉山銀行", name="Unicard")
     gogo = await cards_repo.get_or_create_card(session, bank_name="台新銀行", name="@GoGo 卡")
     cube = await cards_repo.get_or_create_card(session, bank_name="國泰世華銀行", name="CUBE 卡")
+    uni.issuer_en = "E.SUN Bank"
+    uni.name_en = "E.SUN Unicard"
+    gogo.issuer_en = "Taishin International Bank"
+    gogo.name_en = "@GoGo card"
     await cards_repo.add_user_card(session, user.id, uni.id)
     await cards_repo.add_user_card(session, user.id, gogo.id)
     yesterday, soon = TODAY - timedelta(days=1), TODAY + timedelta(days=4)
@@ -401,6 +405,8 @@ async def test_stream_event_order_and_shape(api):
     body = events[2][1]
     assert body["mode"] == "no_registration"
     assert body["best_now"]["card"]["name"] == "Unicard"
+    assert body["best_now"]["card"]["issuer_en"] == "E.SUN Bank"
+    assert body["best_now"]["card"]["name_en"] == "E.SUN Unicard"
     assert body["best_now"]["verification_status"] == "verified"
     assert body["best_now"]["estimated_reward_twd"] == 224.7
     assert "email" not in json.dumps(api.agent.calls[0])
@@ -585,7 +591,9 @@ async def test_card_artwork_id_is_passed_through(session, world):
     uni.artwork_id = "esun-unicard"
     await session.flush()
     p = await pre(session, world)
-    assert next(c for c in p.held_cards if c["name"] == "Unicard")["artwork_id"] == "esun-unicard"
+    unicard = next(c for c in p.held_cards if c["name"] == "Unicard")
+    assert unicard["artwork_id"] == "esun-unicard"
+    assert (unicard["issuer_en"], unicard["name_en"]) == ("E.SUN Bank", "E.SUN Unicard")
     result = service.assemble(p, _raw())
     assert result.best_now.card.artwork_id == "esun-unicard"
     assert result.wait_suggestion.card.artwork_id is None  # card without artwork

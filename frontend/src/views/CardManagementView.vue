@@ -13,7 +13,9 @@ import {
 } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
+import { localizedBankName, localizedCardName } from '../cardNames'
 import SiteHeader from '../components/SiteHeader.vue'
+import type { Locale } from '../i18n'
 import { api } from '../services/api'
 
 type CardRequestMethod = 'POST' | 'DELETE'
@@ -30,6 +32,7 @@ interface ApiCard {
   artwork_id: string | null
   display_name: string | null
   issuer_en: string | null
+  name_en: string | null
   variant: string | null
   network: string | null
   tier: string | null
@@ -77,13 +80,21 @@ const announcementMessage = computed(() =>
   announcement.value ? t(announcement.value.key, { name: announcement.value.name }) : '',
 )
 
+function bankName(card: ApiCard) {
+  return localizedBankName(card, locale.value as Locale) ?? t('common.bankUnknown')
+}
+
+function cardName(card: ApiCard) {
+  return localizedCardName(card, locale.value as Locale)
+}
+
 const filteredCards = computed(() => {
   const query = searchQuery.value.trim().toLocaleLowerCase(locale.value)
 
   if (!query) return catalogCards.value
 
   return catalogCards.value.filter((card) =>
-    [card.bank_name, card.name, card.issuer_en, card.variant, card.network, card.tier]
+    [card.bank_name, card.name, card.issuer_en, card.name_en, card.variant, card.network, card.tier]
       .filter(Boolean)
       .join(' ')
       .toLocaleLowerCase(locale.value)
@@ -116,7 +127,7 @@ const groupedCards = computed<CardGroup[]>(() => {
 
     groups.set(key, {
       key,
-      bankName: card.bank_name ?? t('common.bankUnknown'),
+      bankName: bankName(card),
       cards: [card],
       totalCount: cardTotalsByBank.value.get(key) ?? 0,
     })
@@ -183,10 +194,10 @@ async function addCard(card: ApiCard) {
   try {
     const response = await api.post<UserCard>('/me/cards', { card_id: card.id })
     ownedCards.value = [...ownedCards.value, response.data]
-    announcement.value = { key: 'cards.addedAnnouncement', name: card.name }
+    announcement.value = { key: 'cards.addedAnnouncement', name: cardName(card) }
   } catch {
     failedAction.value = { key: card.id, method: 'POST' }
-    actionError.value = { key: 'cards.addFailed', name: card.name }
+    actionError.value = { key: 'cards.addFailed', name: cardName(card) }
   } finally {
     pendingAction.value = null
   }
@@ -203,10 +214,10 @@ async function removeCard(userCard: UserCard) {
   try {
     await api.delete(`/me/cards/${userCard.id}`)
     ownedCards.value = ownedCards.value.filter(({ id }) => id !== userCard.id)
-    announcement.value = { key: 'cards.removedAnnouncement', name: userCard.card.name }
+    announcement.value = { key: 'cards.removedAnnouncement', name: cardName(userCard.card) }
   } catch {
     failedAction.value = { key: userCard.id, method: 'DELETE' }
-    actionError.value = { key: 'cards.removeFailed', name: userCard.card.name }
+    actionError.value = { key: 'cards.removeFailed', name: cardName(userCard.card) }
   } finally {
     pendingAction.value = null
   }
@@ -284,8 +295,8 @@ onMounted(async () => {
                   :src="`/card-art/${userCard.card.artwork_id}.webp`"
                   :alt="
                     t('common.cardArtworkAlt', {
-                      bank: userCard.card.bank_name ?? '',
-                      name: userCard.card.name,
+                      bank: bankName(userCard.card),
+                      name: cardName(userCard.card),
                     })
                   "
                   width="640"
@@ -300,8 +311,8 @@ onMounted(async () => {
 
               <div class="wallet-card__meta">
                 <div>
-                  <h3>{{ userCard.card.name }}</h3>
-                  <p>{{ userCard.card.bank_name ?? t('common.bankUnknown') }}</p>
+                  <h3>{{ cardName(userCard.card) }}</h3>
+                  <p>{{ bankName(userCard.card) }}</p>
                 </div>
                 <button
                   class="wallet-remove"
@@ -311,8 +322,8 @@ onMounted(async () => {
                   :aria-busy="isPending(userCard.id, 'DELETE')"
                   :aria-label="
                     t('cards.removeLabel', {
-                      bank: userCard.card.bank_name ?? '',
-                      name: userCard.card.name,
+                      bank: bankName(userCard.card),
+                      name: cardName(userCard.card),
                     })
                   "
                   @click="removeCard(userCard)"
@@ -411,8 +422,8 @@ onMounted(async () => {
                     :src="`/card-art/${card.artwork_id}.webp`"
                     :alt="
                       t('common.cardArtworkAlt', {
-                        bank: card.bank_name ?? '',
-                        name: card.name,
+                        bank: bankName(card),
+                        name: cardName(card),
                       })
                     "
                     width="640"
@@ -428,8 +439,8 @@ onMounted(async () => {
 
                 <div class="catalogue-card__meta">
                   <div>
-                    <h3>{{ card.name }}</h3>
-                    <p>{{ card.bank_name ?? t('common.bankUnknown') }}</p>
+                    <h3>{{ cardName(card) }}</h3>
+                    <p>{{ bankName(card) }}</p>
                   </div>
                 </div>
 
@@ -441,8 +452,8 @@ onMounted(async () => {
                   :aria-busy="isPending(card.id, 'POST')"
                   :aria-label="
                     isOwned(card)
-                      ? t('cards.addedLabel', { bank: card.bank_name ?? '', name: card.name })
-                      : t('cards.addLabel', { bank: card.bank_name ?? '', name: card.name })
+                      ? t('cards.addedLabel', { bank: bankName(card), name: cardName(card) })
+                      : t('cards.addLabel', { bank: bankName(card), name: cardName(card) })
                   "
                   @click="addCard(card)"
                 >

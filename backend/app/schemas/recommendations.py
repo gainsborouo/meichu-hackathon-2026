@@ -17,6 +17,8 @@ class CardRef(BaseModel):
     id: uuid.UUID
     bank_name: str | None
     name: str
+    issuer_en: str | None = None
+    name_en: str | None = None
     artwork_id: str | None = None
 
 

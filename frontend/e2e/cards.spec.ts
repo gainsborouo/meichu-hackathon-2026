@@ -8,6 +8,7 @@ const catalogCards = [
     artwork_id: 'ctbc-linepay-ve8710',
     display_name: '中國信託銀行｜中國信託 LINE Pay 信用卡（VE8710）',
     issuer_en: 'CTBC Bank',
+    name_en: 'CTBC LINE Pay card',
     variant: 'VE8710',
     network: 'VISA',
     tier: 'Signature',
@@ -21,6 +22,7 @@ const catalogCards = [
     artwork_id: 'fubon-momo',
     display_name: '台北富邦銀行｜momo 卡',
     issuer_en: 'Taipei Fubon Bank',
+    name_en: 'Fubon momo Card',
     variant: null,
     network: null,
     tier: null,
@@ -91,6 +93,11 @@ test('讀取卡片資料後可新增與移除卡片', async ({ page }) => {
     .click()
   await expect(wallet.getByText(catalogCards[1]!.name)).toHaveCount(0)
   expect(deletedUserCardId).toBe(createdUserCard.id)
+
+  await page.getByLabel('語言').selectOption('en-US')
+  const englishWallet = page.getByRole('region', { name: 'My Wallet' })
+  await expect(englishWallet.getByText(catalogCards[0]!.name_en)).toBeVisible()
+  await expect(englishWallet.getByText(catalogCards[0]!.issuer_en)).toBeVisible()
 })
 
 test('初始讀取失敗時顯示錯誤，不顯示空卡包', async ({ page }) => {

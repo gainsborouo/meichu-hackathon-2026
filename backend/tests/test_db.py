@@ -53,6 +53,7 @@ def test_migration_renders_postgres_sql() -> None:
         "ON DELETE SET NULL",
         "artwork_id",
         "official_image_url",
+        "name_en",
         "uq_cards_artwork_id",
         "DO $card_catalog$",
         "ctbc-linepay-ve8710",
@@ -216,10 +217,94 @@ def test_migration_0004_backfills_dates_from_source_payload() -> None:
     assert got["not-a-dict"] == (None, None)
 
 
-def test_alembic_has_a_single_head_and_card_identity_chains_from_0005() -> None:
+def test_alembic_has_a_single_head_and_bilingual_names_chain_from_0006() -> None:
     from alembic.config import Config
     from alembic.script import ScriptDirectory
 
     script = ScriptDirectory.from_config(Config(str(BACKEND / "alembic.ini")))
-    assert script.get_heads() == ["0006"]
+    assert script.get_heads() == ["0007"]
     assert script.get_revision("0006").down_revision == "0005"
+    assert script.get_revision("0007").down_revision == "0006"
+
+
+def test_migration_0007_backfills_names_and_removes_retired_banks() -> None:
+    import importlib.util
+
+    import sqlalchemy as sa
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+
+    path = BACKEND / "alembic" / "versions" / "0007_bilingual_card_names.py"
+    spec = importlib.util.spec_from_file_location("migration_0007", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    engine = sa.create_engine("sqlite://")
+    meta = sa.MetaData()
+    cards = sa.Table(
+        "cards",
+        meta,
+        sa.Column("id", sa.Text, primary_key=True),
+        sa.Column("bank_name", sa.Text),
+        sa.Column("name", sa.Text, nullable=False),
+        sa.Column("artwork_id", sa.Text),
+        sa.Column("issuer_en", sa.Text),
+    )
+    user_cards = sa.Table(
+        "user_cards",
+        meta,
+        sa.Column("id", sa.Text, primary_key=True),
+        sa.Column("card_id", sa.Text, sa.ForeignKey("cards.id", ondelete="RESTRICT")),
+    )
+    user_analyses = sa.Table(
+        "user_analyses",
+        meta,
+        sa.Column("id", sa.Text, primary_key=True),
+        sa.Column(
+            "user_card_id",
+            sa.Text,
+            sa.ForeignKey("user_cards.id", ondelete="CASCADE"),
+        ),
+    )
+    sales = sa.Table(
+        "sales",
+        meta,
+        sa.Column("id", sa.Text, primary_key=True),
+        sa.Column("card_id", sa.Text, sa.ForeignKey("cards.id", ondelete="SET NULL")),
+    )
+
+    with engine.begin() as conn:
+        conn.exec_driver_sql("PRAGMA foreign_keys=ON")
+        meta.create_all(conn)
+        conn.execute(
+            cards.insert(),
+            [
+                {
+                    "id": "kept",
+                    "bank_name": "中國信託銀行",
+                    "name": "中國信託 LINE Pay 信用卡",
+                    "artwork_id": "ctbc-linepay-ve8710",
+                },
+                {
+                    "id": "removed",
+                    "bank_name": "第一銀行",
+                    "name": "一卡通聯名卡",
+                    "artwork_id": "first-19603",
+                },
+            ],
+        )
+        conn.execute(user_cards.insert(), {"id": "held", "card_id": "removed"})
+        conn.execute(user_analyses.insert(), {"id": "analysis", "user_card_id": "held"})
+        conn.execute(sales.insert(), {"id": "sale", "card_id": "removed"})
+
+        with Operations.context(MigrationContext.configure(conn)):
+            module.upgrade()
+
+        kept = conn.execute(
+            sa.text("SELECT issuer_en, name_en FROM cards WHERE id = 'kept'")
+        ).one()
+        assert kept.issuer_en == "CTBC Bank" and kept.name_en == "CTBC LINE Pay card"
+        assert conn.scalar(sa.select(sa.func.count()).select_from(cards)) == 1
+        assert conn.scalar(sa.select(sa.func.count()).select_from(user_cards)) == 0
+        assert conn.scalar(sa.select(sa.func.count()).select_from(user_analyses)) == 0
+        assert conn.scalar(sa.select(sales.c.card_id)) is None

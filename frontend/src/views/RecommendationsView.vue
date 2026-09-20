@@ -5,6 +5,7 @@ import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter, type LocationQueryValue } from 'vue-router'
 
+import { localizedBankName, localizedCardName } from '../cardNames'
 import SiteHeader from '../components/SiteHeader.vue'
 import type { Locale } from '../i18n'
 import { api } from '../services/api'
@@ -25,6 +26,8 @@ interface CardRef {
   id: string
   bank_name: string | null
   name: string
+  issuer_en: string | null
+  name_en: string | null
   // Optional in the schema; the fallback art is shown when it is missing.
   artwork_id?: string | null
 }
@@ -128,6 +131,14 @@ const modeNotice = computed(() => {
     ? t('recommendations.registrationMode')
     : t('recommendations.noRegistrationMode')
 })
+
+function bankName(card: CardRef) {
+  return localizedBankName(card, locale.value as Locale) ?? t('common.bankUnknown')
+}
+
+function cardName(card: CardRef) {
+  return localizedCardName(card, locale.value as Locale)
+}
 
 function queryString(value: LocationQueryValue | LocationQueryValue[] | undefined) {
   return typeof value === 'string' ? value : ''
@@ -673,8 +684,8 @@ onBeforeUnmount(() => {
                   :src="`/card-art/${searchResult.best_now.card.artwork_id}.webp`"
                   :alt="
                     t('common.cardArtworkAlt', {
-                      bank: searchResult.best_now.card.bank_name ?? '',
-                      name: searchResult.best_now.card.name,
+                      bank: bankName(searchResult.best_now.card),
+                      name: cardName(searchResult.best_now.card),
                     })
                   "
                   width="640"
@@ -708,8 +719,8 @@ onBeforeUnmount(() => {
                     }}
                   </span>
                 </div>
-                <h3>{{ searchResult.best_now.card.name }}</h3>
-                <p>{{ searchResult.best_now.card.bank_name }}</p>
+                <h3>{{ cardName(searchResult.best_now.card) }}</h3>
+                <p>{{ bankName(searchResult.best_now.card) }}</p>
               </div>
 
               <div class="reward-summary">
@@ -783,7 +794,10 @@ onBeforeUnmount(() => {
                 @click="recordPurchase(searchResult.best_now.card, searchResult.best_now.sale_id)"
               >
                 {{
-                  purchaseButtonText(searchResult.best_now.card.id, searchResult.best_now.card.name)
+                  purchaseButtonText(
+                    searchResult.best_now.card.id,
+                    cardName(searchResult.best_now.card),
+                  )
                 }}
               </button>
             </div>
@@ -813,8 +827,8 @@ onBeforeUnmount(() => {
                   :src="`/card-art/${searchResult.wait_suggestion.card.artwork_id}.webp`"
                   :alt="
                     t('common.cardArtworkAlt', {
-                      bank: searchResult.wait_suggestion.card.bank_name ?? '',
-                      name: searchResult.wait_suggestion.card.name,
+                      bank: bankName(searchResult.wait_suggestion.card),
+                      name: cardName(searchResult.wait_suggestion.card),
                     })
                   "
                   width="640"
@@ -831,8 +845,8 @@ onBeforeUnmount(() => {
                 <div class="card-badges">
                   <span class="wait-badge">{{ t('recommendations.waitForCampaign') }}</span>
                 </div>
-                <h3 id="wait-title">{{ searchResult.wait_suggestion.card.name }}</h3>
-                <p>{{ searchResult.wait_suggestion.card.bank_name }}</p>
+                <h3 id="wait-title">{{ cardName(searchResult.wait_suggestion.card) }}</h3>
+                <p>{{ bankName(searchResult.wait_suggestion.card) }}</p>
               </div>
 
               <div class="reward-summary">
@@ -902,7 +916,7 @@ onBeforeUnmount(() => {
                 {{
                   purchaseButtonText(
                     searchResult.wait_suggestion.card.id,
-                    searchResult.wait_suggestion.card.name,
+                    cardName(searchResult.wait_suggestion.card),
                   )
                 }}
               </button>

@@ -27,6 +27,7 @@ class CardRead(_ORM):
     artwork_id: str | None
     display_name: str | None
     issuer_en: str | None
+    name_en: str | None
     variant: str | None
     network: str | None
     tier: str | None

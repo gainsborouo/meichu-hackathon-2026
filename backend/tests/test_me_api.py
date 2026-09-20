@@ -36,6 +36,7 @@ async def test_card_analysis_and_sales_flow(client, session) -> None:
         "artwork_id",
         "display_name",
         "issuer_en",
+        "name_en",
         "variant",
         "network",
         "tier",

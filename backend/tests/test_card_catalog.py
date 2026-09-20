@@ -8,26 +8,44 @@ from sqlalchemy import func, select
 from app.models import Card, Sale
 from app.services.card_catalog import (
     ALIASES_BY_ARTWORK_ID,
+    CARD_NAME_FIELDS,
     CARD_UUID_NAMESPACE,
     CATALOG_FIELDS,
     DEFAULT_CARD_CATALOG_PATH,
+    DEFAULT_CARD_NAMES_PATH,
+    RETIRED_BANK_NAMES,
     import_card_catalog,
     load_card_catalog,
+    load_card_names,
 )
 from app.services.sales_import import import_campaigns, load_campaigns
 
 
 def test_versioned_catalog_has_expected_shape() -> None:
     rows = load_card_catalog()
-    assert len(rows) == 94
-    assert len({row.artwork_id for row in rows}) == 94
-    assert len({(row.bank_name, row.name) for row in rows}) == 94
+    assert len(rows) == 47
+    assert len({row.artwork_id for row in rows}) == 47
+    assert len({(row.bank_name, row.name) for row in rows}) == 47
+    assert sum(row.name_en is not None for row in rows) == 38
+    assert not ({row.bank_name for row in rows} & RETIRED_BANK_NAMES)
     assert rows[0].artwork_id == "ctbc-linepay-ve8710"
     assert rows[1].variant is None
     assert {row.image_is_composite for row in rows} == {False, True}
 
     with DEFAULT_CARD_CATALOG_PATH.open(encoding="utf-8", newline="") as source:
         assert tuple(next(csv.reader(source))) == CATALOG_FIELDS
+
+
+def test_versioned_card_names_have_official_sources() -> None:
+    rows = load_card_names()
+    assert len(rows) == 54
+    assert sum(row.artwork_id is not None for row in rows) == 47
+    assert sum(row.name_en is not None for row in rows) == 41
+    assert sum(row.name_en is None for row in rows) == 13
+    assert all(row.official_source_url for row in rows if row.name_en is not None)
+
+    with DEFAULT_CARD_NAMES_PATH.open(encoding="utf-8", newline="") as source:
+        assert tuple(next(csv.reader(source))) == CARD_NAME_FIELDS
 
 
 @pytest.mark.parametrize(
@@ -66,9 +84,9 @@ async def test_import_is_repeatable_and_uses_stable_uuids(session) -> None:
     ids = {card.artwork_id: card.id for card in await session.scalars(select(Card))}
     second = await import_card_catalog(session, rows)
 
-    assert first == {"created": 94, "updated": 0, "total": 94}
-    assert second == {"created": 0, "updated": 94, "total": 94}
-    assert await session.scalar(select(func.count()).select_from(Card)) == 94
+    assert first == {"created": 47, "updated": 0, "total": 47}
+    assert second == {"created": 0, "updated": 47, "total": 47}
+    assert await session.scalar(select(func.count()).select_from(Card)) == 47
     assert ids == {card.artwork_id: card.id for card in await session.scalars(select(Card))}
     assert ids[rows[0].artwork_id] == uuid.uuid5(CARD_UUID_NAMESPACE, rows[0].artwork_id)
 
@@ -93,7 +111,7 @@ async def test_import_updates_aliases_without_changing_identity_or_extra_rows(se
         (*alias, artwork_id) for artwork_id, alias in ALIASES_BY_ARTWORK_ID.items()
     }
     assert await session.get(Card, extra.id) is extra
-    assert await session.scalar(select(func.count()).select_from(Card)) == 95
+    assert await session.scalar(select(func.count()).select_from(Card)) == 48
 
 
 async def test_import_rejects_artwork_and_name_matching_different_cards(session) -> None:
@@ -129,7 +147,7 @@ async def test_import_transaction_rolls_back_rows_before_a_conflict(session) -> 
     assert first_card.artwork_id is None
 
 
-async def test_campaign_import_reuses_catalog_aliases(session) -> None:
+async def test_campaign_import_reuses_catalog_aliases_without_creating_cards(session) -> None:
     await import_card_catalog(session, load_card_catalog())
     await import_campaigns(session, load_campaigns())
     cards = list(await session.scalars(select(Card)))
@@ -142,3 +160,6 @@ async def test_campaign_import_reuses_catalog_aliases(session) -> None:
         select(func.count()).select_from(Sale).where(Sale.card_id == ctbc.id)
     )
     assert sale_count
+    assert ctbc.name_en == "CTBC LINE Pay card"
+    assert ctbc.issuer_en == "CTBC Bank"
+    assert len(cards) == 47

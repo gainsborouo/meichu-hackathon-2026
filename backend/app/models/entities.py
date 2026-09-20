@@ -64,6 +64,7 @@ class Card(Base):
     artwork_id: Mapped[str | None] = mapped_column(sa.Text, unique=True)
     display_name: Mapped[str | None] = mapped_column(sa.Text)
     issuer_en: Mapped[str | None] = mapped_column(sa.Text)
+    name_en: Mapped[str | None] = mapped_column(sa.Text)
     variant: Mapped[str | None] = mapped_column(sa.Text)
     network: Mapped[str | None] = mapped_column(sa.Text)
     tier: Mapped[str | None] = mapped_column(sa.Text)

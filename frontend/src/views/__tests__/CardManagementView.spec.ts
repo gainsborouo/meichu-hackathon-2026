@@ -20,6 +20,7 @@ const catalogCards = [
     artwork_id: 'ctbc-linepay-ve8710',
     display_name: '中國信託銀行｜中國信託 LINE Pay 信用卡（VE8710）',
     issuer_en: 'CTBC Bank',
+    name_en: 'CTBC LINE Pay card',
     variant: 'VE8710',
     network: 'VISA',
     tier: 'Signature',
@@ -33,6 +34,7 @@ const catalogCards = [
     artwork_id: 'fubon-momo',
     display_name: '台北富邦銀行｜momo 卡',
     issuer_en: 'Taipei Fubon Bank',
+    name_en: 'Fubon momo Card',
     variant: null,
     network: null,
     tier: null,
@@ -125,6 +127,34 @@ describe('CardManagementView', () => {
     expect(groups[0]!.get('summary').text()).toContain('13 張')
     expect(groups[1]!.get('summary').text()).toContain('台北富邦銀行')
     expect(groups[1]!.get('summary').text()).toContain('13 張')
+  })
+
+  it('依介面語系顯示名稱，並以中英文搜尋', async () => {
+    const fallbackCard = {
+      ...catalogCards[1]!,
+      id: '33333333-3333-4333-8333-333333333333',
+      name: '台茂聯名卡',
+      name_en: null,
+    }
+    mockInitialRequests([], [catalogCards[0]!, fallbackCard])
+    const wrapper = mountCardManagement()
+    await flushPromises()
+
+    setLocale('en-US', false)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('CTBC LINE Pay card')
+    expect(wrapper.text()).toContain('CTBC Bank')
+    expect(wrapper.text()).toContain('台茂聯名卡')
+    expect(wrapper.text()).toContain('Taipei Fubon Bank')
+
+    await wrapper.get('#card-search').setValue('中國信託')
+    expect(wrapper.findAll('.catalogue-card')).toHaveLength(1)
+    expect(wrapper.get('.catalogue-card').text()).toContain('CTBC LINE Pay card')
+
+    await wrapper.get('#card-search').setValue('CTBC LINE Pay')
+    expect(wrapper.findAll('.catalogue-card')).toHaveLength(1)
+    expect(wrapper.get('.catalogue-card').text()).toContain('CTBC LINE Pay card')
   })
 
   it('獨立收合銀行群組，搜尋時自動展開，清除搜尋後全部展開', async () => {
