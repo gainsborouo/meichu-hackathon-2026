@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import {
   ChevronDown,
   CircleUserRound,
-  FileUp,
   Languages,
+  CalendarCheck,
+  CreditCard,
+  FileUp,
   LogOut,
   WalletCards,
 } from '@lucide/vue'
@@ -14,10 +16,12 @@ import { useI18n } from 'vue-i18n'
 
 import { auth, googleProvider } from '@/firebase'
 import { isLocale, setLocale } from '@/i18n'
+import { connectCalendarIfNeeded } from '@/services/calendarConnect'
+import { preloadGis } from '@/services/googleCodeClient'
 import { useAuthStore } from '@/stores/authStore'
 
 defineProps<{
-  current: 'home' | 'upload-statement' | 'card-management'
+  current: 'home' | 'upload-statement' | 'card-management' | 'calendar'
 }>()
 
 const authStore = useAuthStore()
@@ -26,6 +30,16 @@ const { locale, t } = useI18n()
 const authBusy = ref(false)
 const authErrorKey = ref('')
 const avatarFailed = ref(false)
+const calendarNotice = ref('')
+const calendarError = ref('')
+/** Shown when the popup never opened: a click gives consent a fresh gesture. */
+const calendarRetry = ref(false)
+const calendarBusy = ref(false)
+
+// The consent popup opens two awaits after the login click, by which point the
+// transient user activation may be gone. Having the script already cached
+// shortens that gap.
+onMounted(preloadGis)
 
 const authUserName = computed(
   () => authUser.value?.displayName || authUser.value?.email || t('auth.googleUser'),
@@ -33,9 +47,50 @@ const authUserName = computed(
 const authError = computed(() => (authErrorKey.value ? t(authErrorKey.value) : ''))
 const showAvatar = computed(() => Boolean(authUser.value?.photoURL) && !avatarFailed.value)
 
-watch(authUser, () => {
+watch(authUser, (current) => {
   avatarFailed.value = false
+  if (!current) clearCalendarState()
 })
+
+function clearCalendarState() {
+  calendarNotice.value = ''
+  calendarError.value = ''
+  calendarRetry.value = false
+}
+
+/** Run calendar consent and translate the outcome into what the header shows.
+ *
+ * Deliberately never rethrows: this runs inside the login handler, and a
+ * calendar problem must not read as a failed sign-in.
+ */
+async function runCalendarConnect() {
+  if (calendarBusy.value) return
+
+  calendarBusy.value = true
+  clearCalendarState()
+
+  try {
+    const outcome = await connectCalendarIfNeeded()
+
+    switch (outcome.status) {
+      case 'connected':
+        calendarNotice.value = '已連結 Google 行事曆。'
+        break
+      case 'blocked':
+        calendarError.value = '瀏覽器阻擋了行事曆授權視窗。'
+        calendarRetry.value = true
+        break
+      case 'failed':
+        calendarError.value = `行事曆連結失敗：${outcome.message}`
+        calendarRetry.value = true
+        break
+      // 'already-connected', 'declined' and 'unavailable' each mean there is
+      // nothing for the user to act on, so the header stays quiet.
+    }
+  } finally {
+    calendarBusy.value = false
+  }
+}
 
 function authErrorCode(error: unknown) {
   return typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : ''
@@ -49,6 +104,9 @@ async function handleLogin() {
 
   try {
     await signInWithPopup(auth, googleProvider)
+    // Consent runs after sign-in because it needs the session's ID token to
+    // check the existing grant and to post the code.
+    await runCalendarConnect()
   } catch (error) {
     const code = authErrorCode(error)
 
@@ -65,6 +123,8 @@ async function handleLogout() {
 
   authBusy.value = true
   authErrorKey.value = ''
+
+  clearCalendarState()
 
   try {
     await signOut(auth)
@@ -111,6 +171,14 @@ function handleLocaleChange(event: Event) {
       >
         <WalletCards :size="18" aria-hidden="true" />
         {{ t('navigation.cardManagement') }}
+      </a>
+      <a
+        class="topbar__link"
+        href="/calendar"
+        :aria-current="current === 'calendar' ? 'page' : undefined"
+      >
+        <CalendarCheck :size="18" aria-hidden="true" />
+        行事曆
       </a>
     </nav>
 
@@ -180,6 +248,23 @@ function handleLocaleChange(event: Event) {
         </div>
 
         <p v-if="authError" class="topbar__auth-error" role="alert">{{ authError }}</p>
+
+        <p v-if="calendarNotice" class="topbar__auth-notice" role="status">{{ calendarNotice }}</p>
+
+        <p v-if="calendarError" class="topbar__auth-error" role="alert">
+          {{ calendarError }}
+          <button
+            v-if="calendarRetry"
+            class="topbar__auth-retry"
+            type="button"
+            :disabled="calendarBusy"
+            :aria-busy="calendarBusy"
+            @click="runCalendarConnect"
+          >
+            <CalendarCheck :size="14" aria-hidden="true" />
+            {{ calendarBusy ? '連結中…' : '重新連結行事曆' }}
+          </button>
+        </p>
       </div>
 
       <label class="topbar__language">
@@ -386,13 +471,47 @@ function handleLocaleChange(event: Event) {
   white-space: nowrap;
 }
 
-.topbar__auth-error {
+.topbar__auth-error,
+.topbar__auth-notice {
   max-width: 38ch;
   margin: 0;
   color: var(--color-error);
   font-size: var(--text-xs);
   line-height: 1.4;
   text-align: right;
+}
+
+.topbar__auth-notice {
+  color: var(--color-muted);
+}
+
+.topbar__auth-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  border: var(--rule-hairline) solid var(--color-rule);
+  border-radius: var(--radius-control);
+  margin-inline-start: var(--space-2xs);
+  padding: 2px var(--space-xs);
+  background: var(--color-paper-2);
+  color: var(--color-ink-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+.topbar__auth-retry:focus-visible {
+  outline: var(--rule-focus) solid var(--color-focus);
+  outline-offset: var(--rule-focus);
+}
+
+.topbar__auth-retry[aria-busy='true'] {
+  cursor: wait;
+}
+
+.topbar__auth-retry:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .topbar__login {

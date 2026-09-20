@@ -4,6 +4,8 @@ services:
   backend:
     build: ./backend
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8081:8000"
     env_file:
       - path: ./backend/.env
         required: false
@@ -24,6 +26,16 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
+    healthcheck:
+      # 127.0.0.1, not localhost: busybox wget tries ::1 first and Vite binds IPv4 only.
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:5173/ || exit 1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      # npm ci on a cold node_modules volume + cold npm cache can run several
+      # minutes; poll fast during that window so Caddy starts as soon as Vite binds.
+      start_period: 600s
+      start_interval: 5s
 
   postgres:
     image: postgres:17-alpine
@@ -49,6 +61,9 @@ services:
     configs:
       - source: caddyfile
         target: /etc/caddy/Caddyfile
+    depends_on:
+      frontend:
+        condition: service_healthy
 
 volumes:
   pgdata:
