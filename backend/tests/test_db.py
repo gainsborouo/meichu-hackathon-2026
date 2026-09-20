@@ -217,32 +217,33 @@ def test_migration_0004_backfills_dates_from_source_payload() -> None:
     assert got["not-a-dict"] == (None, None)
 
 
-def test_alembic_has_a_single_head_and_bilingual_names_chain_from_0006() -> None:
+def test_alembic_has_a_single_head_and_bilingual_names_chain() -> None:
     from alembic.config import Config
     from alembic.script import ScriptDirectory
 
     script = ScriptDirectory.from_config(Config(str(BACKEND / "alembic.ini")))
     heads = script.get_heads()
-    assert heads == ["0007"]
+    assert heads == ["0008"]
     assert script.get_revision("0006").down_revision == "0005"
     assert script.get_revision("0007").down_revision == "0006"
+    assert script.get_revision("0008").down_revision == "0007"
     # The migration history is a single linear chain from the initial revision.
     chain, revision = [], script.get_revision(heads[0])
     while revision is not None:
         chain.append(revision.revision)
         revision = (script.get_revision(revision.down_revision) if revision.down_revision else None)
-    assert chain == ["0007", "0006", "0005", "0004", "0003", "0002", "0001"]
+    assert chain == ["0008", "0007", "0006", "0005", "0004", "0003", "0002", "0001"]
 
 
-def test_migration_0007_backfills_names_and_removes_retired_banks() -> None:
+def test_migration_0008_backfills_names_and_removes_retired_banks() -> None:
     import importlib.util
 
     import sqlalchemy as sa
     from alembic.migration import MigrationContext
     from alembic.operations import Operations
 
-    path = BACKEND / "alembic" / "versions" / "0007_bilingual_card_names.py"
-    spec = importlib.util.spec_from_file_location("migration_0007", path)
+    path = BACKEND / "alembic" / "versions" / "0008_bilingual_card_names.py"
+    spec = importlib.util.spec_from_file_location("migration_0008", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 

@@ -1,6 +1,6 @@
 """新增雙語卡名，並移除第一銀行與遠東商銀卡片。
 
-Revision ID: 0007
+Revision ID: 0008
 Revises: 0006
 """
 
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision = "0007"
-down_revision = "0006"
+revision = "0008"
+down_revision = "0007"
 branch_labels = None
 depends_on = None
 
