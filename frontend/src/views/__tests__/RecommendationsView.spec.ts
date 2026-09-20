@@ -258,7 +258,7 @@ describe('RecommendationsView', () => {
     expect(wrapper.get('label[for="registration-campaigns-toggle"]').text()).toBe(
       '是否已登錄信用卡活動',
     )
-    expect(wrapper.get('#registration-preference-message').text()).toBe('')
+    expect(wrapper.find('#registration-preference-message').exists()).toBe(false)
     expect(wrapper.get('label[for="recommendations-web-search"]').text()).toBe('啟用網路搜尋')
     const webSearchToggle = wrapper.get('#recommendations-web-search')
     expect(webSearchToggle.attributes()).toMatchObject({
@@ -275,14 +275,11 @@ describe('RecommendationsView', () => {
     expect(toggle.attributes('disabled')).toBeUndefined()
   })
 
-  it('patches the registration setting before streaming the current form values', async () => {
+  it('updates the registration setting without starting another search', async () => {
     const update = deferred<{ data: { registration_campaigns_enabled: boolean } }>()
     apiMocks.patch.mockReturnValueOnce(update.promise)
-    const { router, wrapper } = await mountRecommendations()
+    const { wrapper } = await mountRecommendations()
 
-    await wrapper.get<HTMLInputElement>('#recommendation-platform').setValue('PChome')
-    await wrapper.get<HTMLInputElement>('#recommendation-price').setValue('1200')
-    await wrapper.get<HTMLInputElement>('#recommendation-category').setValue('鍵盤')
     await wrapper.get('.registration-switch__track').trigger('click')
     await settle()
 
@@ -296,20 +293,11 @@ describe('RecommendationsView', () => {
     update.resolve({ data: { registration_campaigns_enabled: true } })
     await settle()
 
-    expect(router.currentRoute.value.query).toMatchObject({
-      platform: 'PChome',
-      price: '1200',
-      category: '鍵盤',
-    })
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(JSON.parse(requestInit(1).body as string)).toMatchObject({
-      store_name: 'PChome',
-      price: 1200,
-      product_name: '鍵盤',
-    })
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(wrapper.find('[data-testid="best-now"]').exists()).toBe(true)
   })
 
-  it('updates the setting without streaming invalid form values and clears the old result', async () => {
+  it('updates the setting without validating form values or clearing the old result', async () => {
     const { wrapper } = await mountRecommendations()
     expect(wrapper.find('[data-testid="best-now"]').exists()).toBe(true)
 
@@ -319,7 +307,7 @@ describe('RecommendationsView', () => {
 
     expect(apiMocks.patch).toHaveBeenCalledOnce()
     expect(fetchMock).toHaveBeenCalledOnce()
-    expect(wrapper.find('[data-testid="best-now"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="best-now"]').exists()).toBe(true)
     expect(wrapper.findAll('.query-field__error')).toHaveLength(0)
   })
 
@@ -349,11 +337,9 @@ describe('RecommendationsView', () => {
     )
   })
 
-  it('aborts the active stream before patching and keeps the saved setting on stream failure', async () => {
+  it('aborts the active stream without starting another search after saving the setting', async () => {
     const first = controlledStream()
-    fetchMock
-      .mockResolvedValueOnce(okResponse(first.body))
-      .mockResolvedValueOnce(failedResponse(503))
+    fetchMock.mockResolvedValueOnce(okResponse(first.body))
     const { wrapper } = await mountRecommendations()
 
     await wrapper.get('.registration-switch__track').trigger('click')
@@ -361,11 +347,9 @@ describe('RecommendationsView', () => {
 
     expect(first.isCancelled()).toBe(true)
     expect(apiMocks.patch).toHaveBeenCalledOnce()
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledOnce()
     expect(wrapper.get('#registration-campaigns-toggle').attributes('aria-checked')).toBe('true')
-    expect(wrapper.get('.state-panel--error [role="alert"]').text()).toBe(
-      '無法取得信用卡推薦，請稍後再試。',
-    )
+    expect(wrapper.find('.state-panel--error').exists()).toBe(false)
   })
 
   it('posts to the SSE endpoint with the Firebase token and mapped body', async () => {

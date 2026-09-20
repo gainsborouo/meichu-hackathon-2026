@@ -95,7 +95,7 @@ describe('HomeView', () => {
       '是否已登錄信用卡活動',
     )
     expect(wrapper.get('#registration-campaigns-toggle').attributes('role')).toBe('switch')
-    expect(wrapper.get('#registration-preference-message').text()).toBe('')
+    expect(wrapper.find('#registration-preference-message').exists()).toBe(false)
     expect(wrapper.get('label[for="home-web-search"]').text()).toBe('啟用網路搜尋')
     const webSearchToggle = wrapper.get('#home-web-search')
     expect(webSearchToggle.attributes()).toMatchObject({

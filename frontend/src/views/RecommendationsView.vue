@@ -797,22 +797,8 @@ function restoreSearchAfterPreferenceFailure() {
   preferenceSearchSnapshot = null
 }
 
-async function rerunSearchAfterPreferenceUpdate() {
+function completeRegistrationPreferenceUpdate() {
   preferenceSearchSnapshot = null
-
-  if (!hasValidSearch()) {
-    resetChat()
-    resetPurchaseFeedback()
-    searchResult.value = null
-    resultRequest.value = null
-    requestErrorKey.value = ''
-    searchState.value = 'idle'
-    return
-  }
-
-  resetPurchaseFeedback()
-  if (routeHasCurrentQuery()) await loadRecommendations()
-  else await router.push({ name: 'recommendations', query: currentQuery() })
 }
 
 function prepareRouteSearch() {
@@ -989,7 +975,7 @@ onBeforeUnmount(() => {
           <RegistrationCampaignToggle
             @busy-change="registrationPreferenceSaving = $event"
             @update-start="beginRegistrationPreferenceUpdate"
-            @updated="rerunSearchAfterPreferenceUpdate"
+            @updated="completeRegistrationPreferenceUpdate"
             @update-failed="restoreSearchAfterPreferenceFailure"
           />
           <WebSearchToggle id="recommendations-web-search" v-model="webSearchEnabled" />

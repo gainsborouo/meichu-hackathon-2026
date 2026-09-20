@@ -580,6 +580,7 @@ onMounted(async () => {
 .wallet-section,
 .catalogue-section {
   display: grid;
+  min-width: 0;
   gap: var(--space-lg);
 }
 
@@ -649,6 +650,7 @@ onMounted(async () => {
 }
 
 .wallet-shell {
+  min-width: 0;
   border: var(--rule-hairline) solid var(--color-graphite-rule);
   border-radius: var(--radius-panel);
   padding: var(--space-lg);
@@ -686,6 +688,7 @@ onMounted(async () => {
 }
 
 .wallet-card__media {
+  aspect-ratio: 8 / 5;
   background: transparent;
 }
 
@@ -697,6 +700,13 @@ onMounted(async () => {
   max-width: 100%;
   max-height: 16rem;
   object-fit: contain;
+}
+
+.wallet-card__media img {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
 }
 
 .wallet-card__meta {

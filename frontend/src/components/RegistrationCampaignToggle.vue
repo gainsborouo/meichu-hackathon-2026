@@ -94,12 +94,13 @@ watch([authReady, authUser], () => void load(), { immediate: true })
       :aria-checked="enabled"
       :disabled="disabled"
       :aria-busy="!loaded || saving"
-      aria-describedby="registration-preference-message"
+      :aria-describedby="error ? 'registration-preference-message' : undefined"
       @click="update(!enabled)"
     >
       <span class="registration-switch__track" aria-hidden="true"></span>
     </button>
     <p
+      v-if="error"
       id="registration-preference-message"
       class="registration-preference__message"
       :class="{ 'registration-preference__message--error': error }"
@@ -214,14 +215,6 @@ watch([authReady, authUser], () => void load(), { immediate: true })
   min-height: 1.5em;
   color: var(--preference-muted);
   font-size: var(--text-xs);
-}
-
-.registration-preference__message:empty {
-  visibility: hidden;
-}
-
-.registration-preference--form .registration-preference__message:empty {
-  display: none;
 }
 
 .registration-preference__message--error {

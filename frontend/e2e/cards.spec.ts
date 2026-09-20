@@ -100,6 +100,68 @@ test('讀取卡片資料後可新增與移除卡片', async ({ page }) => {
   await expect(englishWallet.getByText(catalogCards[0]!.issuer_en)).toBeVisible()
 })
 
+test('我的卡包卡面等高，卡片超出寬度時可水平捲動', async ({ page }) => {
+  const ownedCards = Array.from({ length: 6 }, (_, index) => ({
+    id: `owned-${index}`,
+    card: {
+      ...catalogCards[index % catalogCards.length]!,
+      id: `card-${index}`,
+      artwork_id: `wallet-art-${index}`,
+    },
+    created_at: '2026-09-19T00:00:00Z',
+  }))
+
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request()
+    const { pathname } = new URL(request.url())
+
+    if (request.method() === 'GET' && pathname === '/api/v1/cards') {
+      await route.fulfill({ status: 200, json: catalogCards })
+      return
+    }
+    if (request.method() === 'GET' && pathname === '/api/v1/me/cards') {
+      await route.fulfill({ status: 200, json: ownedCards })
+      return
+    }
+
+    await route.abort()
+  })
+  await page.route('**/card-art/wallet-art-*.webp', async (route) => {
+    const portrait = route.request().url().includes('wallet-art-1')
+    const [width, height] = portrait ? [400, 640] : [640, 400]
+    await route.fulfill({
+      status: 200,
+      contentType: 'image/svg+xml',
+      body: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"></svg>`,
+    })
+  })
+
+  await page.goto('/cards')
+
+  const track = page.locator('.wallet-track')
+  const media = track.locator('.wallet-card__media')
+  await expect(media).toHaveCount(6)
+  await expect
+    .poll(() =>
+      media.locator('img').evaluateAll((images) => images.every((image) => image.complete)),
+    )
+    .toBe(true)
+
+  const mediaHeights = await media.evaluateAll((elements) =>
+    elements.map((element) => Math.round(element.getBoundingClientRect().height)),
+  )
+  expect(mediaHeights).toEqual(Array(ownedCards.length).fill(mediaHeights[0]))
+
+  const initialMetrics = await track.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  }))
+  expect(initialMetrics.scrollWidth).toBeGreaterThan(initialMetrics.clientWidth)
+
+  await track.evaluate((element) => element.scrollTo({ left: element.scrollWidth }))
+  expect(await track.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
+})
+
 test('初始讀取失敗時顯示錯誤，不顯示空卡包', async ({ page }) => {
   await page.route('**/api/v1/**', async (route) => {
     await route.fulfill({
