@@ -84,6 +84,21 @@ async def test_refreshes_the_users_spend_report(client, session) -> None:
     assert (await client.get(f"{P}/me")).json()["latest_spend_report"]
 
 
+async def test_english_upload_refreshes_the_spend_report_in_english(client, session) -> None:
+    await _my_card(session)
+    response = await client.post(
+        f"{P}/me/statements",
+        files={"files": ("aug.jpg", JPEG, "image/jpeg")},
+        data={"locale": "en-US"},
+    )
+    assert response.status_code == 201, response.text
+
+    report = (await client.get(f"{P}/me/statements")).json()["report"]
+    assert "## Three-Month Spending Summary" in report
+    assert "Only 1 month of data" in report
+    assert "近三個月" not in report
+
+
 async def test_each_month_becomes_its_own_row(client, session) -> None:
     await _my_card(session)
     client.state["summaries"] = [

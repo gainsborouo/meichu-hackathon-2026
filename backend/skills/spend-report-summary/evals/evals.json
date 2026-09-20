@@ -20,10 +20,10 @@
     {
       "id": 2,
       "prompt": "I have a user's last three months of per-card statement analyses in evals/fixture_rows.json. Produce the merged spending summary that gets cached on the user record.",
-      "expected_output": "Same merged summary, reached from an English request; the report itself should still be in Traditional Chinese because the underlying analyses are.",
+      "expected_output": "The same merged summary in concise American English, because the request locale is English.",
       "files": ["evals/fixture_rows.json"],
       "assertions": [
-        "The report is written in Traditional Chinese despite the English request",
+        "The report is written in concise American English",
         "Month totals are correct (5420 / 3360 / 6928)",
         "A month-by-month table is present",
         "The summary interprets the data rather than only restating the table"

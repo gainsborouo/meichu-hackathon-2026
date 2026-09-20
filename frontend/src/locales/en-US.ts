@@ -123,6 +123,8 @@ export default {
     loginRequired: 'Sign in with Google to get a credit card recommendation.',
     defaultProgress: 'Comparing your cards with current offers…',
     preprocessingProgress: 'Preparing your cards and available offers…',
+    liveCardLookupProgress: 'Checking official bank pages for the latest offers…',
+    reprocessingProgress: 'Latest offers found. Comparing them again…',
     verificationProgress: 'Checking official bank offers…',
     registrationMode: 'Showing only offers that require registration, based on your settings.',
     noRegistrationMode:

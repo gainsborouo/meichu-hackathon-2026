@@ -250,7 +250,11 @@ def aggregate(payload: dict) -> dict:
         "largest_transaction": (
             {**largest, "amount": num(dec(largest.get("amount")))} if largest else None
         ),
-        "data_quality": {"analyses_read": len(rows), "notes": notes},
+        "data_quality": {
+            "analyses_read": len(rows),
+            "currencies": sorted(currencies),
+            "notes": notes,
+        },
     }
 
 

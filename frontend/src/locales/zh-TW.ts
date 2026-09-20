@@ -121,6 +121,8 @@ export default {
     loginRequired: '請先登入 Google 帳號，才能取得信用卡推薦。',
     defaultProgress: '系統正在比對持卡資料與優惠活動，請稍候。',
     preprocessingProgress: '正在整理你的持卡資料與優惠活動…',
+    liveCardLookupProgress: '正在查詢銀行官方頁面的最新活動…',
+    reprocessingProgress: '已取得最新活動，正在重新比對…',
     verificationProgress: '正在核對銀行官方活動…',
     registrationMode: '依你的設定，僅列出需要登錄的優惠。',
     noRegistrationMode: '依你的設定，僅列出不需登錄的優惠。',

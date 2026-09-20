@@ -16,6 +16,10 @@ vi.mock('@/services/api', () => ({ api: apiMocks }))
 
 const signedInUser = { uid: 'user-1' } as User
 
+function spendReportResponse(report: string | null) {
+  return { data: { report, months_covered: report ? 1 : 0, cards_covered: report ? 1 : 0 } }
+}
+
 function mountUploadStatement(user: User | null = signedInUser, authReady = true) {
   const pinia = createPinia()
   const authStore = useAuthStore(pinia)
@@ -62,7 +66,8 @@ describe('UploadStatementView', () => {
     expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
   })
 
-  it('uploads all selected files in one multipart request', async () => {
+  it('uploads all selected files and the active locale in one multipart request', async () => {
+    setLocale('en-US', false)
     apiMocks.post.mockResolvedValue({})
     const wrapper = mountUploadStatement()
     const input = wrapper.get<HTMLInputElement>('#statement-file')
@@ -85,7 +90,8 @@ describe('UploadStatementView', () => {
     expect(url).toBe('/me/statements')
     expect((body as FormData).getAll('files')).toEqual(files)
     expect((body as FormData).has('file')).toBe(false)
-    expect(wrapper.get('[role="status"]').text()).toBe('已上傳 2 份帳單。')
+    expect((body as FormData).get('locale')).toBe('en-US')
+    expect(wrapper.get('[role="status"]').text()).toBe('Uploaded 2 statements.')
   })
 
   it('shows an error when the upload request fails', async () => {
@@ -116,7 +122,7 @@ describe('UploadStatementView', () => {
   })
 
   it('loads and safely renders the Markdown analysis before opening the dialog', async () => {
-    let resolveRequest!: (value: { data: string }) => void
+    let resolveRequest!: (value: ReturnType<typeof spendReportResponse>) => void
     apiMocks.get.mockReturnValue(
       new Promise((resolve) => {
         resolveRequest = resolve
@@ -131,23 +137,25 @@ describe('UploadStatementView', () => {
     expect(button.attributes('disabled')).toBeDefined()
     expect(wrapper.get('dialog').attributes('open')).toBeUndefined()
 
-    resolveRequest({
-      data: [
-        '# 八月消費',
-        '',
-        '| 類別 | 金額 |',
-        '| --- | ---: |',
-        '| 餐飲 | 1,200 |',
-        '',
-        '[資料來源](https://example.com/report)',
-        '',
-        '<script>alert("unsafe")</script>',
-        '',
-        '![追蹤圖片](https://example.com/tracker.png)',
-        '',
-        '[危險連結](javascript:alert(1))',
-      ].join('\n'),
-    })
+    resolveRequest(
+      spendReportResponse(
+        [
+          '# 八月消費',
+          '',
+          '| 類別 | 金額 |',
+          '| --- | ---: |',
+          '| 餐飲 | 1,200 |',
+          '',
+          '[資料來源](https://example.com/report)',
+          '',
+          '<script>alert("unsafe")</script>',
+          '',
+          '![追蹤圖片](https://example.com/tracker.png)',
+          '',
+          '[危險連結](javascript:alert(1))',
+        ].join('\n'),
+      ),
+    )
     await flushPromises()
 
     expect(apiMocks.get).toHaveBeenCalledWith('/me/statements', {
@@ -166,8 +174,8 @@ describe('UploadStatementView', () => {
     expect(links[0]!.attributes('rel')).toBe('noopener noreferrer')
   })
 
-  it('shows the empty state for a blank response', async () => {
-    apiMocks.get.mockResolvedValue({ data: '  \n' })
+  it('shows the empty state for a null report', async () => {
+    apiMocks.get.mockResolvedValue(spendReportResponse(null))
     const wrapper = mountUploadStatement()
 
     await wrapper.get('.analysis-trigger').trigger('click')
@@ -180,7 +188,7 @@ describe('UploadStatementView', () => {
   it('keeps request errors on the page and retries on the next click', async () => {
     apiMocks.get
       .mockRejectedValueOnce(new Error('Request failed'))
-      .mockResolvedValueOnce({ data: '# 已重新載入' })
+      .mockResolvedValueOnce(spendReportResponse('# 已重新載入'))
     const wrapper = mountUploadStatement()
 
     await wrapper.get('.analysis-trigger').trigger('click')
@@ -198,7 +206,7 @@ describe('UploadStatementView', () => {
   })
 
   it('supports every close action and fetches again when reopened', async () => {
-    apiMocks.get.mockResolvedValue({ data: '# 帳單分析' })
+    apiMocks.get.mockResolvedValue(spendReportResponse('# 帳單分析'))
     const wrapper = mountUploadStatement()
 
     await wrapper.get('.analysis-trigger').trigger('click')

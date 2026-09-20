@@ -35,7 +35,11 @@ def _rows(analyses) -> list[dict]:
 
 
 async def refresh_latest_spend_report(
-    session: AsyncSession, user_id: uuid.UUID, *, use_agent: bool = True
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    locale: str = "zh-TW",
+    use_agent: bool = True,
 ) -> str | None:
     """Rebuild users.latest_spend_report from the newest three months of analyses.
 
@@ -55,14 +59,14 @@ async def refresh_latest_spend_report(
     else:
         try:
             facts = build_facts(_rows(rows))
-            report = render_deterministic(facts)
+            report = render_deterministic(facts, locale=locale)
         except InputError as exc:
             logger.warning("spend report aggregation failed: %s", exc)
             report = None
         else:
             if use_agent:
                 try:
-                    report = await write_report(facts, skeleton=report)
+                    report = await write_report(facts, skeleton=report, locale=locale)
                 except SpendReportAgentError as exc:
                     # Expected whenever the gateway is unset or unreachable. The
                     # deterministic report is already in hand, so keep it.

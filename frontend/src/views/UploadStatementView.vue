@@ -10,6 +10,7 @@ import { useAuthStore } from '../stores/authStore'
 
 type UploadState = 'idle' | 'uploading' | 'success' | 'error'
 type AnalysisState = 'idle' | 'loading' | 'error'
+type SpendReportResponse = { report: string | null }
 
 const markdown = new MarkdownIt({ html: false, linkify: true })
 
@@ -22,7 +23,7 @@ markdown.renderer.rules.image = (tokens, index) => markdown.utils.escapeHtml(tok
 
 const authStore = useAuthStore()
 const { ready: authReady, user: authUser } = storeToRefs(authStore)
-const { t } = useI18n()
+const { locale, t } = useI18n()
 const selectedFiles = ref<File[]>([])
 const uploadState = ref<UploadState>('idle')
 const messageKey = ref('')
@@ -71,6 +72,7 @@ async function uploadStatement() {
     const formData = new FormData()
 
     selectedFiles.value.forEach((file) => formData.append('files', file))
+    formData.append('locale', locale.value)
     await api.post('/me/statements', formData)
 
     uploadState.value = 'success'
@@ -91,12 +93,13 @@ async function openAnalysis() {
   analysisMarkdown.value = ''
 
   try {
-    const response = await api.get<string>('/me/statements', { signal: controller.signal })
+    const response = await api.get<SpendReportResponse>('/me/statements', {
+      signal: controller.signal,
+    })
 
     if (controller.signal.aborted) return
-    if (typeof response.data !== 'string') throw new TypeError('Expected a Markdown string')
 
-    analysisMarkdown.value = response.data
+    analysisMarkdown.value = response.data.report ?? ''
     analysisState.value = 'idle'
     analysisDialog.value?.showModal()
   } catch {
@@ -526,9 +529,12 @@ function closeAnalysis() {
 }
 
 .analysis-dialog {
+  position: fixed;
+  inset: 0;
   width: min(calc(100% - (var(--space-xl) * 2)), 64rem);
   max-width: none;
   max-height: min(85dvh, 52rem);
+  margin: auto;
   border: var(--rule-hairline) solid var(--color-rule-strong);
   border-radius: var(--radius-panel);
   padding: 0;

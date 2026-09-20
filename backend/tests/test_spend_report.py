@@ -111,6 +111,14 @@ def test_rendered_report_carries_the_real_numbers() -> None:
     assert "交通" in report and "網購" in report  # categories rendered in zh-TW
 
 
+def test_rendered_report_uses_the_requested_english_locale() -> None:
+    report = render_deterministic(build_facts(ROWS), locale="en-US")
+    assert "## Three-Month Spending Summary" in report
+    assert "| Month | Spending | Top category |" in report
+    assert "Transportation" in report and "Online shopping" in report
+    assert "近三個月" not in report
+
+
 def test_rendering_survives_having_no_months() -> None:
     assert "沒有可用" in render_deterministic({"months": [], "totals": {}})
 
@@ -168,11 +176,15 @@ async def test_model_output_is_used_when_the_agent_succeeds(session, monkeypatch
 
     async def _write(facts, **kwargs):
         assert facts["totals"]["net_spend"] == 21000, "the model is given real facts"
-        return "## 近三個月消費總結\n\n模型寫的洞察。\n\n| 月份 | 支出 |\n|---|---|\n"
+        assert kwargs["locale"] == "en-US"
+        return (
+            "## Three-Month Spending Summary\n\nModel insight.\n\n"
+            "| Month | Spending |\n|---|---|\n"
+        )
 
     monkeypatch.setattr(spend_report, "write_report", _write)
-    report = await refresh_latest_spend_report(session, user.id)
-    assert "模型寫的洞察" in report
+    report = await refresh_latest_spend_report(session, user.id, locale="en-US")
+    assert "Model insight" in report
 
 
 async def test_use_agent_false_skips_the_model_entirely(session, monkeypatch) -> None:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render facts as a zh-TW report, without a model.
+"""Render facts as a localized report, without a model.
 
 Two jobs. It is the skeleton the written summary is built on -- the table is
 tedious to type and easy to get subtly wrong, so it is generated rather than
@@ -45,58 +45,113 @@ CATEGORY_ZH = {
     "uncategorized": "未分類",
 }
 
+CATEGORY_EN = {
+    "dining": "Dining",
+    "convenience": "Convenience stores",
+    "groceries": "Groceries",
+    "transport": "Transportation",
+    "fuel": "Fuel",
+    "online_shopping": "Online shopping",
+    "shopping_retail": "Retail",
+    "entertainment": "Entertainment",
+    "software_services": "Software services",
+    "utilities_telecom": "Utilities & telecom",
+    "healthcare": "Healthcare",
+    "beauty_personal": "Beauty & personal care",
+    "travel_lodging": "Travel & lodging",
+    "education": "Education",
+    "home": "Home",
+    "insurance": "Insurance",
+    "financial_fees": "Fees & annual charges",
+    "pets": "Pets",
+    "charity": "Charity",
+    "other": "Other",
+    "uncategorized": "Uncategorized",
+}
 
-def zh(name: str | None) -> str:
-    return CATEGORY_ZH.get(name or "", name or "—")
+
+def category_name(name: str | None, locale: str) -> str:
+    labels = CATEGORY_EN if locale == "en-US" else CATEGORY_ZH
+    return labels.get(name or "", name or "—")
 
 
 def money(currency: str, amount) -> str:
     return f"{currency} {amount:,.0f}" if isinstance(amount, (int, float)) else "—"
 
 
-def render(facts: dict) -> str:
+def render(facts: dict, *, locale: str = "zh-TW") -> str:
+    english = locale == "en-US"
     currency = facts.get("currency") or "TWD"
     months = facts.get("months") or []
     totals = facts.get("totals") or {}
-    lines = ["## 近三個月消費總結", ""]
+    title = "Three-Month Spending Summary" if english else "近三個月消費總結"
+    lines = [f"## {title}", ""]
 
     if not months:
-        return "## 近三個月消費總結\n\n目前沒有可用的消費分析。"
+        empty = "No spending analysis is available." if english else "目前沒有可用的消費分析。"
+        return f"## {title}\n\n{empty}"
 
-    span = f"{months[0]['month']} 至 {months[-1]['month']}"
-    head = f"{span} 共 {money(currency, totals.get('net_spend'))}"
-    if totals.get("mean_monthly") is not None:
-        head += f"，平均每月 {money(currency, totals['mean_monthly'])}"
     pct = totals.get("change_pct")
-    if pct is not None and len(months) > 1:
-        direction = "增加" if pct >= 0 else "減少"
-        head += f"；最後一個月較第一個月{direction} {abs(pct) * 100:.0f}%"
-    lines += [head + "。", ""]
+    if english:
+        span = f"{months[0]['month']} to {months[-1]['month']}"
+        head = f"{span}: {money(currency, totals.get('net_spend'))} total"
+        if totals.get("mean_monthly") is not None:
+            head += f", {money(currency, totals['mean_monthly'])} monthly average"
+        if pct is not None and len(months) > 1:
+            direction = "higher" if pct >= 0 else "lower"
+            head += f"; the last month was {abs(pct) * 100:.0f}% {direction} than the first"
+        lines += [head + ".", ""]
+        lines += ["| Month | Spending | Top category |", "|---|---|---|"]
+    else:
+        span = f"{months[0]['month']} 至 {months[-1]['month']}"
+        head = f"{span} 共 {money(currency, totals.get('net_spend'))}"
+        if totals.get("mean_monthly") is not None:
+            head += f"，平均每月 {money(currency, totals['mean_monthly'])}"
+        if pct is not None and len(months) > 1:
+            direction = "增加" if pct >= 0 else "減少"
+            head += f"；最後一個月較第一個月{direction} {abs(pct) * 100:.0f}%"
+        lines += [head + "。", ""]
+        lines += ["| 月份 | 支出 | 最大類別 |", "|---|---|---|"]
 
-    lines += ["| 月份 | 支出 | 最大類別 |", "|---|---|---|"]
     for row in months:
-        top = zh(row.get("top_category"))
+        top = category_name(row.get("top_category"), locale)
         if row.get("top_category_amount") is not None:
-            top += f"（{money(currency, row['top_category_amount'])}）"
+            amount = money(currency, row["top_category_amount"])
+            top += f" ({amount})" if english else f"（{amount}）"
         lines.append(f"| {row['month']} | {money(currency, row['net_spend'])} | {top} |")
     lines.append("")
 
     subs = facts.get("subscriptions") or []
     every_month = [s for s in subs if s["months_present"] >= len(months) > 1]
     if every_month:
-        parts = ", ".join(
-            f"{s['merchant']}（{s['months_present']} 個月共 {money(currency, s['total'])}）"
-            for s in every_month[:3]
-        )
-        lines.append(f"- 每月固定扣款：{parts}")
+        if english:
+            parts = ", ".join(
+                f"{s['merchant']} ({s['months_present']} months, "
+                f"{money(currency, s['total'])} total)"
+                for s in every_month[:3]
+            )
+            lines.append(f"- Monthly recurring charges: {parts}")
+        else:
+            parts = ", ".join(
+                f"{s['merchant']}（{s['months_present']} 個月共 {money(currency, s['total'])}）"
+                for s in every_month[:3]
+            )
+            lines.append(f"- 每月固定扣款：{parts}")
 
     biggest = facts.get("largest_transaction")
     if biggest:
-        lines.append(
-            f"- 最大單筆：{biggest.get('merchant') or '—'} "
-            f"{money(currency, biggest.get('amount'))}"
-            f"（{biggest.get('month')}，{biggest.get('card')}）"
-        )
+        merchant = biggest.get("merchant") or "—"
+        amount = money(currency, biggest.get("amount"))
+        if english:
+            lines.append(
+                f"- Largest transaction: {merchant} {amount} "
+                f"({biggest.get('month')}, {biggest.get('card')})"
+            )
+        else:
+            lines.append(
+                f"- 最大單筆：{merchant} {amount}"
+                f"（{biggest.get('month')}，{biggest.get('card')}）"
+            )
 
     trend = facts.get("category_trend") or []
     movers = [c for c in trend if c.get("change")]
@@ -104,16 +159,48 @@ def render(facts: dict) -> str:
         up = max(movers, key=lambda c: c["change"])
         down = min(movers, key=lambda c: c["change"])
         if up["change"] > 0:
-            lines.append(f"- 增加最多：{zh(up['name'])} +{money(currency, up['change'])}")
+            label = "Largest increase" if english else "增加最多"
+            lines.append(
+                f"- {label}: {category_name(up['name'], locale)} "
+                f"+{money(currency, up['change'])}"
+            )
         if down["change"] < 0:
-            lines.append(f"- 減少最多：{zh(down['name'])} {money(currency, down['change'])}")
+            label = "Largest decrease" if english else "減少最多"
+            lines.append(
+                f"- {label}: {category_name(down['name'], locale)} "
+                f"{money(currency, down['change'])}"
+            )
 
     fees = totals.get("fees")
     if fees:
-        lines.append(f"- 期間手續費與年費共 {money(currency, fees)}")
+        if english:
+            lines.append(f"- Fees and annual charges during the period: {money(currency, fees)}")
+        else:
+            lines.append(f"- 期間手續費與年費共 {money(currency, fees)}")
 
-    for note in (facts.get("data_quality") or {}).get("notes") or []:
-        lines.append(f"- 註：{note}")
+    data_quality = facts.get("data_quality") or {}
+    if english:
+        if len(months) < 3:
+            unit = "month" if len(months) == 1 else "months"
+            lines.append(
+                f"- Note: Only {len(months)} {unit} of data is available, "
+                "so trend analysis is limited."
+            )
+        text_only = sum(int(row.get("text_only_cards") or 0) for row in months)
+        if text_only:
+            unit = "analysis" if text_only == 1 else "analyses"
+            lines.append(
+                f"- Note: {text_only} {unit} had no structured data and was excluded "
+                "from monetary totals."
+            )
+        currencies = data_quality.get("currencies") or []
+        if len(currencies) > 1:
+            lines.append(
+                f"- Note: Mixed currencies {currencies} were not converted; totals are indicative."
+            )
+    else:
+        for note in data_quality.get("notes") or []:
+            lines.append(f"- 註：{note}")
 
     return "\n".join(lines).rstrip() + "\n"
 
@@ -121,9 +208,10 @@ def render(facts: dict) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", help='facts JSON path, or "-" for stdin')
+    parser.add_argument("--locale", choices=("zh-TW", "en-US"), default="zh-TW")
     args = parser.parse_args()
     raw = sys.stdin.read() if args.input == "-" else open(args.input, encoding="utf-8").read()
-    print(render(json.loads(raw)), end="")
+    print(render(json.loads(raw), locale=args.locale), end="")
     return 0
 
 

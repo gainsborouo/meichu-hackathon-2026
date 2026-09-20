@@ -63,13 +63,14 @@ def build_facts(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return aggregate({"rows": rows})
 
 
-def render_deterministic(facts: dict[str, Any]) -> str:
+def render_deterministic(facts: dict[str, Any], *, locale: str = "zh-TW") -> str:
     """The report without a model: heading, table, bullet facts. Always available."""
-    return render(facts)
+    return render(facts, locale=locale)
 
 
-def _instruction() -> str:
+def _instruction(locale: str) -> str:
     workflow = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    language = "concise American English" if locale == "en-US" else "Traditional Chinese"
     return (
         "You write a user's three-month spending summary.\n\n"
         f"{workflow}\n\n"
@@ -78,6 +79,7 @@ def _instruction() -> str:
         "skeleton in step 3 have already been run for you and are given below. "
         "Your job is step 4: write the two or three sentences of insight, then "
         "reproduce the skeleton beneath them unchanged.\n"
+        f"Write the entire report in {language}.\n"
         "Reply with the finished Markdown report and nothing else -- no preamble, "
         "no code fences, no commentary about what you did."
     )
@@ -96,6 +98,7 @@ async def write_report(
     facts: dict[str, Any],
     *,
     skeleton: str | None = None,
+    locale: str = "zh-TW",
     model: str | None = None,
     timeout: float | None = DEFAULT_TIMEOUT_SECONDS,
 ) -> str:
@@ -113,11 +116,11 @@ async def write_report(
     if not (base_url and api_key and model_name):
         raise SpendReportAgentError("LLM_BASE_URL / LLM_API_KEY / LLM_MODEL are not set")
 
-    skeleton = skeleton if skeleton is not None else render_deterministic(facts)
+    skeleton = skeleton if skeleton is not None else render_deterministic(facts, locale=locale)
     agent = Agent(
         name=APP_NAME,
         model=LiteLlm(model=f"openai/{model_name}", api_base=base_url, api_key=api_key),
-        instruction=_instruction(),
+        instruction=_instruction(locale),
         tools=[],
     )
     app = App(name=APP_NAME, root_agent=agent)
@@ -126,13 +129,23 @@ async def write_report(
         app_name=app.name, user_id="system", session_id="spend_report"
     )
 
-    prompt = (
-        "以下是彙總後的事實（facts.json）：\n\n```json\n"
-        + json.dumps(facts, ensure_ascii=False, indent=2)
-        + "\n```\n\n以下是已產生的報告骨架，請保留其中的表格與條列，"
-        "並在標題下方加入你的兩到三句洞察：\n\n"
-        + skeleton
-    )
+    facts_json = json.dumps(facts, ensure_ascii=False, indent=2)
+    if locale == "en-US":
+        prompt = (
+            "Here are the aggregated facts (facts.json):\n\n```json\n"
+            + facts_json
+            + "\n```\n\nHere is the generated report skeleton. Preserve its table and bullet "
+            "points, and add two or three sentences of insight below the heading:\n\n"
+            + skeleton
+        )
+    else:
+        prompt = (
+            "以下是彙總後的事實（facts.json）：\n\n```json\n"
+            + facts_json
+            + "\n```\n\n以下是已產生的報告骨架，請保留其中的表格與條列，"
+            "並在標題下方加入你的兩到三句洞察：\n\n"
+            + skeleton
+        )
 
     chunks: list[str] = []
 

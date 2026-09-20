@@ -11,7 +11,7 @@ import tempfile
 import uuid
 from datetime import date
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 
@@ -235,6 +235,10 @@ async def analyze_and_store(
     user: CurrentUser,
     session: SessionDep,
     files: Annotated[list[UploadFile], File(description="One or more statement images.")],
+    locale: Annotated[
+        Literal["zh-TW", "en-US"],
+        Form(description="Language for the cached spending report."),
+    ] = "zh-TW",
     user_card_id: Annotated[
         uuid.UUID | None,
         Form(description="Which of your cards these belong to. Omit to detect it from the image."),
@@ -304,7 +308,7 @@ async def analyze_and_store(
                 analysis_data={"summary": summary, "trend": result.get("trend")},
             )
         )
-    await refresh_latest_spend_report(session, user.id)
+    await refresh_latest_spend_report(session, user.id, locale=locale)
     return [AnalysisRead.model_validate(r) for r in rows]
 
 

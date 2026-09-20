@@ -729,7 +729,12 @@ describe('RecommendationsView', () => {
 
     stream.push(sse('searching', { stage: 'official_verification' }))
     await settle()
-    expect(wrapper.get('[role="status"]').text()).toContain('正在核對銀行官方活動')
+    const progressEvents = wrapper.findAll('.progress-events li')
+    expect(progressEvents).toHaveLength(2)
+    expect(progressEvents[0]!.text()).toContain('正在整理你的持卡資料與優惠活動')
+    expect(progressEvents[0]!.attributes('aria-current')).toBeUndefined()
+    expect(progressEvents[1]!.text()).toContain('正在核對銀行官方活動')
+    expect(progressEvents[1]!.attributes('aria-current')).toBe('step')
     expect(wrapper.find('.recommendation-card').exists()).toBe(false)
 
     stream.push(sse('recommendation', recommendation))

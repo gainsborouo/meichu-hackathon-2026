@@ -128,6 +128,8 @@ const LOGIN_REQUIRED_KEY = 'recommendations.loginRequired'
 const DEFAULT_PROGRESS_KEY = 'recommendations.defaultProgress'
 const STAGE_PROGRESS: Record<string, string> = {
   preprocessing: 'recommendations.preprocessingProgress',
+  live_card_lookup: 'recommendations.liveCardLookupProgress',
+  reprocessing: 'recommendations.reprocessingProgress',
   official_verification: 'recommendations.verificationProgress',
 }
 
@@ -159,6 +161,7 @@ const searchResult = ref<RecommendationResponse | null>(null)
 const resultRequest = ref<RecommendationRequest | null>(null)
 const requestErrorKey = ref('')
 const progressKey = ref(DEFAULT_PROGRESS_KEY)
+const progressKeys = ref<string[]>([])
 const failedImageIds = ref(new Set<string>())
 const purchaseState = ref<PurchaseState>('idle')
 const selectedCardId = ref<string | null>(null)
@@ -671,6 +674,7 @@ async function loadRecommendations() {
   searchResult.value = null
   requestErrorKey.value = ''
   progressKey.value = DEFAULT_PROGRESS_KEY
+  progressKeys.value = []
 
   const user = authUser.value
   if (!user) {
@@ -718,8 +722,9 @@ async function loadRecommendations() {
 
       if (event.event === 'searching') {
         const stage = parsePayload(event.data).stage
-        progressKey.value =
-          (typeof stage === 'string' && STAGE_PROGRESS[stage]) || DEFAULT_PROGRESS_KEY
+        const key = (typeof stage === 'string' && STAGE_PROGRESS[stage]) || DEFAULT_PROGRESS_KEY
+        progressKey.value = key
+        if (!progressKeys.value.includes(key)) progressKeys.value.push(key)
       } else if (event.event === 'recommendation') {
         searchResult.value = parseRecommendation(event.data)
         resultRequest.value = request
@@ -807,6 +812,7 @@ function prepareRouteSearch() {
   syncFormFromRoute()
   searchResult.value = null
   requestErrorKey.value = ''
+  progressKeys.value = []
 
   if (!validateSearch()) {
     resetChat()
@@ -1011,7 +1017,16 @@ onBeforeUnmount(() => {
         <LoaderCircle class="state-panel__spinner" :size="34" aria-hidden="true" />
         <div>
           <h2>{{ t('recommendations.loadingTitle') }}</h2>
-          <p>{{ progressMessage }}</p>
+          <ol v-if="progressKeys.length" class="progress-events">
+            <li
+              v-for="(key, index) in progressKeys"
+              :key="key"
+              :aria-current="index === progressKeys.length - 1 ? 'step' : undefined"
+            >
+              {{ t(key) }}
+            </li>
+          </ol>
+          <p v-else>{{ progressMessage }}</p>
         </div>
       </section>
 
@@ -1696,6 +1711,35 @@ onBeforeUnmount(() => {
 .state-panel p {
   margin-block-start: var(--space-xs);
   color: var(--color-muted);
+}
+
+.progress-events {
+  display: grid;
+  gap: var(--space-xs);
+  margin: var(--space-md) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.progress-events li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--color-muted);
+}
+
+.progress-events li::before {
+  width: 0.45rem;
+  height: 0.45rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: currentcolor;
+  content: '';
+}
+
+.progress-events li[aria-current='step'] {
+  color: var(--color-ink);
+  font-weight: 700;
 }
 
 .state-panel button {

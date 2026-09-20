@@ -1,6 +1,6 @@
 ---
 name: spend-report-summary
-description: Merge a user's last three months of per-card statement analyses into one short Traditional Chinese spending summary, written to users.latest_spend_report. Use this whenever a summary across months or across several cards is wanted — 近三個月消費、消費總結、spending summary, "how have I been spending lately", a dashboard overview, or refreshing latest_spend_report after new analyses land. Reach for it even when the request just says "總結" or "summarize my spending", and prefer it over re-reading raw statements: the per-card analyses are already computed, and this rolls them up rather than starting over.
+description: Merge a user's last three months of per-card statement analyses into one short localized spending summary, written to users.latest_spend_report. Use this whenever a summary across months or across several cards is wanted — 近三個月消費、消費總結、spending summary, "how have I been spending lately", a dashboard overview, or refreshing latest_spend_report after new analyses land. Reach for it even when the request just says "總結" or "summarize my spending", and prefer it over re-reading raw statements: the per-card analyses are already computed, and this rolls them up rather than starting over.
 ---
 
 # Spend report summary
@@ -36,8 +36,8 @@ ANTHROPIC 訂閱每月固定約 640 元，三個月累計 1,924 元。
 - 最大單筆：樂天市場 TWD 2,900（2026-08，玉山銀行 Pi 信用卡）
 ```
 
-Write in Traditional Chinese, because that is what the statements and the users
-are in. If every analysis in the window is in another language, follow it.
+Write in the locale requested by the caller: Traditional Chinese for `zh-TW`, or
+concise American English for `en-US`. Keep merchant and card names unchanged.
 
 ## Step 1: Collect the rows
 
