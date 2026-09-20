@@ -21,8 +21,15 @@ const apiMocks = vi.hoisted(() => ({
   post: vi.fn<(url: string, data?: unknown) => Promise<unknown>>(),
 }))
 
+const calendarConnectMock = vi.hoisted(() => ({
+  connectCalendarIfNeeded: vi.fn<() => Promise<{ status: string; message?: string }>>(),
+}))
+
 vi.mock('@/firebase', () => ({ auth: {} }))
 vi.mock('@/services/api', () => ({ api: apiMocks }))
+vi.mock('@/services/calendarConnect', () => ({
+  connectCalendarIfNeeded: calendarConnectMock.connectCalendarIfNeeded,
+}))
 
 const STREAM_URL = '/api/v1/recommendations/stream'
 const CHAT_STREAM_URL = '/api/v1/recommendations/chat/stream'
@@ -224,6 +231,8 @@ beforeEach(() => {
   apiMocks.patch.mockImplementation(async (_url, data) => ({ data }))
   apiMocks.post.mockReset()
   apiMocks.post.mockResolvedValue({})
+  calendarConnectMock.connectCalendarIfNeeded.mockReset()
+  calendarConnectMock.connectCalendarIfNeeded.mockResolvedValue({ status: 'already-connected' })
   fetchMock.mockReset()
   fetchMock.mockImplementation(() => Promise.resolve(okResponse(chunked(fullStream))))
   vi.stubGlobal('fetch', fetchMock)
@@ -786,9 +795,83 @@ describe('RecommendationsView', () => {
     expect(draft.text()).toContain('活動：GoGo 網購加碼')
     expect(draft.text()).toContain('條件：需以 @GoGo 卡刷卡')
     expect(draft.text()).toContain('尚未建立')
-    expect(draft.find('button').exists()).toBe(false)
+    expect(draft.get('[data-testid="add-to-calendar"]').text()).toContain('加入行事曆')
     expect(best.get('[data-testid="record-purchase-best-now"]').text()).toContain('Unicard')
     expect(wait.get('[data-testid="record-purchase-wait-suggestion"]').text()).toContain('@GoGo 卡')
+  })
+
+  it('turns the calendar draft into an event with the campaign sale id', async () => {
+    apiMocks.post.mockResolvedValue({ data: { already_notified: false } })
+
+    const { wrapper } = await mountRecommendations()
+    await wrapper.get('[data-testid="add-to-calendar"]').trigger('click')
+    await settle()
+
+    expect(apiMocks.post).toHaveBeenCalledExactlyOnceWith('/me/calendar/events', {
+      title: recommendation.wait_suggestion.calendar_draft.title,
+      starts_at: recommendation.wait_suggestion.calendar_draft.starts_at,
+      notes: recommendation.wait_suggestion.calendar_draft.notes,
+      sale_id: recommendation.wait_suggestion.sale_id,
+    })
+
+    const status = wrapper.get('[data-testid="calendar-status"]')
+    expect(status.text()).toContain('已加入 Google 行事曆')
+    // The draft hint and the button both retire once the event is real.
+    expect(wrapper.find('[data-testid="add-to-calendar"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="calendar-draft"]').text()).not.toContain('尚未建立')
+  })
+
+  it('reports a campaign that was already flagged without duplicating it', async () => {
+    apiMocks.post.mockResolvedValue({ data: { already_notified: true } })
+
+    const { wrapper } = await mountRecommendations()
+    await wrapper.get('[data-testid="add-to-calendar"]').trigger('click')
+    await settle()
+
+    expect(wrapper.get('[data-testid="calendar-status"]').text()).toContain('先前已提醒過')
+  })
+
+  it('asks for calendar consent before creating the event', async () => {
+    calendarConnectMock.connectCalendarIfNeeded.mockResolvedValue({ status: 'connected' })
+    apiMocks.post.mockResolvedValue({ data: { already_notified: false } })
+
+    const { wrapper } = await mountRecommendations()
+    await wrapper.get('[data-testid="add-to-calendar"]').trigger('click')
+    await settle()
+
+    expect(calendarConnectMock.connectCalendarIfNeeded).toHaveBeenCalledOnce()
+    expect(apiMocks.post).toHaveBeenCalledWith('/me/calendar/events', expect.anything())
+  })
+
+  it('does not create an event when consent is declined', async () => {
+    calendarConnectMock.connectCalendarIfNeeded.mockResolvedValue({ status: 'declined' })
+
+    const { wrapper } = await mountRecommendations()
+    await wrapper.get('[data-testid="add-to-calendar"]').trigger('click')
+    await settle()
+
+    expect(apiMocks.post).not.toHaveBeenCalled()
+    const status = wrapper.get('[data-testid="calendar-status"]')
+    expect(status.text()).toContain('需要連結 Google 行事曆')
+    expect(status.attributes('role')).toBe('alert')
+    // Still retryable: the button stays put.
+    expect(wrapper.find('[data-testid="add-to-calendar"]').exists()).toBe(true)
+  })
+
+  it('keeps the button available after a failed attempt', async () => {
+    apiMocks.post.mockRejectedValueOnce(new Error('network'))
+
+    const { wrapper } = await mountRecommendations()
+    await wrapper.get('[data-testid="add-to-calendar"]').trigger('click')
+    await settle()
+
+    expect(wrapper.get('[data-testid="calendar-status"]').text()).toContain('無法加入行事曆')
+
+    apiMocks.post.mockResolvedValue({ data: { already_notified: false } })
+    await wrapper.get('[data-testid="add-to-calendar"]').trigger('click')
+    await settle()
+
+    expect(wrapper.get('[data-testid="calendar-status"]').text()).toContain('已加入 Google 行事曆')
   })
 
   it('records one selected card with the criteria that produced the result', async () => {

@@ -10,6 +10,7 @@ import {
   Send,
   TriangleAlert,
   X,
+  CalendarPlus,
 } from '@lucide/vue'
 import MarkdownIt from 'markdown-it'
 import { storeToRefs } from 'pinia'
@@ -17,6 +18,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter, type LocationQueryValue } from 'vue-router'
 
 import { localizedBankName, localizedCardName } from '../cardNames'
+import { connectCalendarIfNeeded } from '../services/calendarConnect'
 import RegistrationCampaignToggle from '../components/RegistrationCampaignToggle.vue'
 import SiteHeader from '../components/SiteHeader.vue'
 import WebSearchToggle from '../components/WebSearchToggle.vue'
@@ -111,6 +113,7 @@ interface ChatMessage {
 type SearchState = 'idle' | 'loading' | 'success' | 'error' | 'unauthenticated'
 type PurchaseState = 'idle' | 'submitting' | 'success' | 'error'
 type ChatState = 'idle' | 'streaming' | 'error'
+type CalendarState = 'idle' | 'submitting' | 'success' | 'error'
 type PreferenceSearchSnapshot = {
   state: SearchState
   result: RecommendationResponse | null
@@ -170,10 +173,13 @@ const chatErrorKey = ref('')
 const chatMessageList = ref<HTMLElement | null>(null)
 const chatInput = ref<HTMLTextAreaElement | null>(null)
 const chatLauncher = ref<HTMLButtonElement | null>(null)
+const calendarState = ref<CalendarState>('idle')
+const calendarMessageKey = ref('')
 let activeController: AbortController | null = null
 let chatController: AbortController | null = null
 let purchaseRequestVersion = 0
 let nextChatMessageId = 1
+let calendarRequestVersion = 0
 let preferenceSearchSnapshot: PreferenceSearchSnapshot | null = null
 
 const formattedAmount = computed(() => amount.value.replace(/\B(?=(\d{3})+(?!\d))/g, ','))
@@ -555,6 +561,68 @@ function resetPurchaseFeedback() {
   purchaseState.value = 'idle'
   selectedCardId.value = null
   resultRequest.value = null
+  resetCalendarFeedback()
+}
+
+function resetCalendarFeedback() {
+  calendarRequestVersion += 1
+  calendarState.value = 'idle'
+  calendarMessageKey.value = ''
+}
+
+function calendarButtonText() {
+  if (calendarState.value === 'submitting') return t('recommendations.addingToCalendar')
+  return t('recommendations.addToCalendar')
+}
+
+/** Turn the wait suggestion's draft into a real Google Calendar reminder.
+ *
+ * The draft is only data until this runs -- see calendarDraftHint. Consent is
+ * requested first when the account has no grant yet; doing it from this click
+ * keeps the popup inside a user gesture, which is exactly what the automatic
+ * post-login attempt cannot guarantee.
+ */
+async function addDraftToCalendar(suggestion: WaitSuggestion) {
+  if (calendarState.value === 'submitting' || calendarState.value === 'success') return
+
+  const version = ++calendarRequestVersion
+  calendarState.value = 'submitting'
+  calendarMessageKey.value = ''
+
+  const settle = (state: CalendarState, messageKey: string) => {
+    if (version !== calendarRequestVersion) return
+    calendarState.value = state
+    calendarMessageKey.value = messageKey
+  }
+
+  const connection = await connectCalendarIfNeeded()
+  if (version !== calendarRequestVersion) return
+
+  if (connection.status !== 'connected' && connection.status !== 'already-connected') {
+    // 'declined' is the user's answer, not a fault; the rest are already
+    // surfaced by the header, so this only needs to explain the missing grant.
+    settle('error', 'recommendations.calendarConnectRequired')
+    return
+  }
+
+  try {
+    const { data } = await api.post<{ already_notified: boolean }>('/me/calendar/events', {
+      title: suggestion.calendar_draft.title,
+      starts_at: suggestion.calendar_draft.starts_at,
+      notes: suggestion.calendar_draft.notes,
+      // Records the notification against the campaign, so a second attempt
+      // comes back already_notified instead of duplicating the reminder.
+      sale_id: suggestion.sale_id,
+    })
+    settle(
+      'success',
+      data.already_notified
+        ? 'recommendations.calendarAlreadyNotified'
+        : 'recommendations.calendarEventAdded',
+    )
+  } catch {
+    settle('error', 'recommendations.calendarAddFailed')
+  }
 }
 
 function purchaseStateFor(cardId: string): PurchaseState {
@@ -1221,7 +1289,33 @@ onBeforeUnmount(() => {
                 <p class="calendar-draft__notes">
                   {{ searchResult.wait_suggestion.calendar_draft.notes }}
                 </p>
-                <p class="calendar-draft__hint">{{ t('recommendations.calendarDraftHint') }}</p>
+                <p v-if="calendarState !== 'success'" class="calendar-draft__hint">
+                  {{ t('recommendations.calendarDraftHint') }}
+                </p>
+
+                <button
+                  v-if="calendarState !== 'success'"
+                  class="calendar-button"
+                  type="button"
+                  data-testid="add-to-calendar"
+                  :data-state="calendarState"
+                  :disabled="calendarState === 'submitting'"
+                  :aria-busy="calendarState === 'submitting'"
+                  @click="addDraftToCalendar(searchResult.wait_suggestion)"
+                >
+                  <CalendarPlus :size="16" aria-hidden="true" />
+                  {{ calendarButtonText() }}
+                </button>
+
+                <p
+                  v-if="calendarMessageKey"
+                  class="calendar-draft__status"
+                  :data-state="calendarState"
+                  data-testid="calendar-status"
+                  :role="calendarState === 'error' ? 'alert' : 'status'"
+                >
+                  {{ t(calendarMessageKey) }}
+                </p>
               </div>
 
               <button
@@ -2170,6 +2264,47 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+/* Secondary to the purchase button below it: adding a reminder is the smaller
+   commitment of the two actions on this card. */
+.calendar-button {
+  display: inline-flex;
+  min-height: var(--control-height);
+  align-items: center;
+  justify-self: start;
+  gap: var(--space-xs);
+  border: var(--rule-hairline) solid var(--color-action);
+  border-radius: var(--radius-control);
+  outline: var(--rule-focus) solid transparent;
+  outline-offset: var(--rule-focus);
+  padding-inline: var(--space-md);
+  background: transparent;
+  color: var(--color-action);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  white-space: nowrap;
+  transition:
+    background-color var(--dur-short) var(--ease-out),
+    color var(--dur-short) var(--ease-out);
+}
+
+.calendar-button:focus-visible {
+  outline-color: var(--color-focus);
+}
+
+.calendar-button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.calendar-draft__status {
+  color: var(--color-success);
+  font-weight: 700;
+}
+
+.calendar-draft__status[data-state='error'] {
+  color: var(--color-error);
+}
+
 .page-footer {
   border-top: var(--rule-hairline) solid var(--color-rule);
   padding-block: var(--space-md);
@@ -2180,6 +2315,11 @@ onBeforeUnmount(() => {
 }
 
 @media (hover: hover) and (pointer: fine) {
+  .calendar-button:hover:not(:disabled) {
+    background: var(--color-action);
+    color: var(--color-action-ink);
+  }
+
   .query-submit:hover,
   .state-panel button:hover,
   .purchase-button:hover:not(:disabled) {
