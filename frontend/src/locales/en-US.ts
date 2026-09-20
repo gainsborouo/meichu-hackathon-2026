@@ -127,6 +127,11 @@ export default {
     registrationMode: 'Showing only offers that require registration, based on your settings.',
     noRegistrationMode:
       'Showing only offers that do not require registration, based on your settings.',
+    registrationPreferenceLabel: 'Registered for reward campaigns',
+    registrationPreferenceLoadFailed:
+      'Could not load your campaign registration setting. Refresh the page to try again.',
+    registrationPreferenceUpdateFailed:
+      'Could not update your campaign registration setting. Try again later.',
     eyebrow: 'Credit Card Recommendation',
     title: 'Which card should you use?',
     description: 'Adjust the purchase details to get an updated recommendation.',

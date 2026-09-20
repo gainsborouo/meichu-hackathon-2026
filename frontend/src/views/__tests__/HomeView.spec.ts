@@ -24,6 +24,17 @@ const routerMocks = vi.hoisted(() => ({
   push: vi.fn<(location: unknown) => Promise<void>>(),
 }))
 
+const apiMocks = vi.hoisted(() => ({
+  get: vi.fn<(url: string) => Promise<{ data: { registration_campaigns_enabled: boolean } }>>(),
+  patch:
+    vi.fn<
+      (
+        url: string,
+        data: { registration_campaigns_enabled: boolean },
+      ) => Promise<{ data: { registration_campaigns_enabled: boolean } }>
+    >(),
+}))
+
 vi.mock('@/firebase', () => ({
   auth: authMocks.auth,
   googleProvider: authMocks.googleProvider,
@@ -37,6 +48,17 @@ vi.mock('firebase/auth', () => ({
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: routerMocks.push }),
 }))
+
+vi.mock('@/services/api', () => ({ api: apiMocks }))
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+
+  return { promise, resolve }
+}
 
 function mountHome(user: MockAuthUser | null = null) {
   const pinia = createPinia()
@@ -57,6 +79,8 @@ beforeEach(() => {
   authMocks.signInWithPopup.mockResolvedValue({})
   authMocks.signOut.mockResolvedValue(undefined)
   routerMocks.push.mockResolvedValue(undefined)
+  apiMocks.get.mockResolvedValue({ data: { registration_campaigns_enabled: false } })
+  apiMocks.patch.mockImplementation(async (_url, data) => ({ data }))
 })
 
 describe('HomeView', () => {
@@ -67,6 +91,8 @@ describe('HomeView', () => {
     expect(wrapper.get('label[for="location"]').text()).toContain('消費地點')
     expect(wrapper.get('label[for="amount"]').text()).toContain('金額（以新臺幣計算）')
     expect(wrapper.get('label[for="category"]').text()).toContain('品項或類別')
+    expect(wrapper.get('label[for="registration-campaigns-toggle"]').text()).toBe('是否登錄活動')
+    expect(wrapper.get('#registration-campaigns-toggle').attributes('role')).toBe('switch')
     expect(wrapper.get('a[href="/upload-statement"]').text()).toContain('上傳帳單')
     expect(wrapper.text()).not.toContain('店家、品類或用途都可以作為查詢情境。')
     expect(wrapper.get('footer').text()).toBe('© 2026 Meichu Hackathon @ Google')
@@ -241,5 +267,37 @@ describe('HomeView', () => {
         category: '影音娛樂',
       },
     })
+  })
+
+  it('saves the registration setting before allowing the search form to submit', async () => {
+    const update = deferred<{ data: { registration_campaigns_enabled: boolean } }>()
+    apiMocks.patch.mockReturnValueOnce(update.promise)
+    const wrapper = mountHome({
+      displayName: '王小明',
+      email: 'user@example.com',
+      photoURL: null,
+    })
+    await flushPromises()
+
+    expect(apiMocks.get).toHaveBeenCalledWith('/me')
+
+    await wrapper.get<HTMLInputElement>('#location').setValue('線上平台')
+    await wrapper.get<HTMLInputElement>('#amount').setValue('10000')
+    await wrapper.get<HTMLInputElement>('#category').setValue('影音娛樂')
+    await wrapper.get('.registration-switch__track').trigger('click')
+    await flushPromises()
+
+    expect(apiMocks.patch).toHaveBeenCalledWith('/me', {
+      registration_campaigns_enabled: true,
+    })
+    expect(wrapper.get('.search-panel__submit').attributes('disabled')).toBeDefined()
+    await wrapper.get('form').trigger('submit')
+    expect(routerMocks.push).not.toHaveBeenCalled()
+
+    update.resolve({ data: { registration_campaigns_enabled: true } })
+    await flushPromises()
+    await wrapper.get('form').trigger('submit')
+
+    expect(routerMocks.push).toHaveBeenCalledOnce()
   })
 })

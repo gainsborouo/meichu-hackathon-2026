@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter, type LocationQueryValue } from 'vue-router'
 
 import { localizedBankName, localizedCardName } from '../cardNames'
+import RegistrationCampaignToggle from '../components/RegistrationCampaignToggle.vue'
 import SiteHeader from '../components/SiteHeader.vue'
 import type { Locale } from '../i18n'
 import { api } from '../services/api'
@@ -86,6 +87,12 @@ interface SseEvent {
 
 type SearchState = 'idle' | 'loading' | 'success' | 'error' | 'unauthenticated'
 type PurchaseState = 'idle' | 'submitting' | 'success' | 'error'
+type PreferenceSearchSnapshot = {
+  state: SearchState
+  result: RecommendationResponse | null
+  request: RecommendationRequest | null
+  errorKey: string
+}
 
 class StreamFailure extends Error {}
 
@@ -109,6 +116,7 @@ const category = ref('')
 const platformError = ref(false)
 const amountError = ref(false)
 const categoryError = ref(false)
+const registrationPreferenceSaving = ref(false)
 const searchState = ref<SearchState>('idle')
 const searchResult = ref<RecommendationResponse | null>(null)
 const resultRequest = ref<RecommendationRequest | null>(null)
@@ -119,6 +127,7 @@ const purchaseState = ref<PurchaseState>('idle')
 const selectedCardId = ref<string | null>(null)
 let activeController: AbortController | null = null
 let purchaseRequestVersion = 0
+let preferenceSearchSnapshot: PreferenceSearchSnapshot | null = null
 
 const formattedAmount = computed(() => amount.value.replace(/\B(?=(\d{3})+(?!\d))/g, ','))
 const requestError = computed(() => (requestErrorKey.value ? t(requestErrorKey.value) : ''))
@@ -154,12 +163,16 @@ function isValidAmount(value: string) {
   return /^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value))
 }
 
+function hasValidSearch() {
+  return Boolean(platform.value.trim() && isValidAmount(amount.value) && category.value.trim())
+}
+
 function validateSearch() {
   platformError.value = !platform.value.trim()
   amountError.value = !isValidAmount(amount.value)
   categoryError.value = !category.value.trim()
 
-  return !platformError.value && !amountError.value && !categoryError.value
+  return hasValidSearch()
 }
 
 function currentQuery() {
@@ -334,7 +347,7 @@ async function recordPurchase(card: CardRef, saleId: string) {
 }
 
 async function loadRecommendations() {
-  if (!authReady.value || !validateSearch()) return
+  if (!authReady.value || registrationPreferenceSaving.value || !validateSearch()) return
 
   activeController?.abort()
   const controller = new AbortController()
@@ -419,6 +432,8 @@ async function loadRecommendations() {
 }
 
 async function submitSearch() {
+  if (registrationPreferenceSaving.value) return
+
   if (!validateSearch()) {
     activeController?.abort()
     resetPurchaseFeedback()
@@ -437,6 +452,50 @@ async function submitSearch() {
   }
 
   await router.push({ name: 'recommendations', query: currentQuery() })
+}
+
+function beginRegistrationPreferenceUpdate() {
+  preferenceSearchSnapshot = {
+    state: searchState.value,
+    result: searchResult.value,
+    request: resultRequest.value,
+    errorKey: requestErrorKey.value,
+  }
+  activeController?.abort()
+  activeController = null
+  if (searchState.value === 'loading') searchState.value = 'idle'
+}
+
+function restoreSearchAfterPreferenceFailure() {
+  if (!preferenceSearchSnapshot) return
+
+  searchResult.value = preferenceSearchSnapshot.result
+  resultRequest.value = preferenceSearchSnapshot.request
+  requestErrorKey.value = preferenceSearchSnapshot.errorKey
+  searchState.value =
+    preferenceSearchSnapshot.state === 'loading'
+      ? preferenceSearchSnapshot.result
+        ? 'success'
+        : 'idle'
+      : preferenceSearchSnapshot.state
+  preferenceSearchSnapshot = null
+}
+
+async function rerunSearchAfterPreferenceUpdate() {
+  preferenceSearchSnapshot = null
+
+  if (!hasValidSearch()) {
+    resetPurchaseFeedback()
+    searchResult.value = null
+    resultRequest.value = null
+    requestErrorKey.value = ''
+    searchState.value = 'idle'
+    return
+  }
+
+  resetPurchaseFeedback()
+  if (routeHasCurrentQuery()) await loadRecommendations()
+  else await router.push({ name: 'recommendations', query: currentQuery() })
 }
 
 function prepareRouteSearch() {
@@ -607,7 +666,19 @@ onBeforeUnmount(() => {
           </p>
         </div>
 
-        <button class="query-submit" type="submit" :aria-busy="searchState === 'loading'">
+        <RegistrationCampaignToggle
+          @busy-change="registrationPreferenceSaving = $event"
+          @update-start="beginRegistrationPreferenceUpdate"
+          @updated="rerunSearchAfterPreferenceUpdate"
+          @update-failed="restoreSearchAfterPreferenceFailure"
+        />
+
+        <button
+          class="query-submit"
+          type="submit"
+          :disabled="registrationPreferenceSaving"
+          :aria-busy="searchState === 'loading' || registrationPreferenceSaving"
+        >
           <LoaderCircle
             v-if="searchState === 'loading'"
             class="spinner"
@@ -1072,6 +1143,11 @@ onBeforeUnmount(() => {
   color: var(--color-error) !important;
 }
 
+.query-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .query-submit,
 .state-panel button,
 .purchase-button {
@@ -1434,7 +1510,7 @@ onBeforeUnmount(() => {
 
 @media (min-width: 60rem) {
   .query-form {
-    grid-template-columns: minmax(0, 1fr) minmax(9rem, 0.7fr) minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) minmax(9rem, 0.7fr) minmax(0, 1fr) auto auto;
     align-items: start;
   }
 

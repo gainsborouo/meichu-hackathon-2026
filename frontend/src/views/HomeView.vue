@@ -4,6 +4,7 @@ import { Banknote, CircleX, Search, Store, Tag } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
+import RegistrationCampaignToggle from '../components/RegistrationCampaignToggle.vue'
 import SiteHeader from '../components/SiteHeader.vue'
 
 const router = useRouter()
@@ -14,6 +15,7 @@ const category = ref('')
 const locationError = ref(false)
 const amountError = ref(false)
 const categoryError = ref(false)
+const registrationPreferenceSaving = ref(false)
 
 const formattedAmount = computed(() => amount.value.replace(/\B(?=(\d{3})+(?!\d))/g, ','))
 
@@ -53,6 +55,8 @@ function clearCategory() {
 }
 
 function submitSearch() {
+  if (registrationPreferenceSaving.value) return
+
   locationError.value = !location.value.trim()
   amountError.value = !isValidAmount(amount.value)
   categoryError.value = !category.value.trim()
@@ -209,7 +213,17 @@ function submitSearch() {
             </p>
           </div>
 
-          <button class="search-panel__submit" type="submit">
+          <RegistrationCampaignToggle
+            tone="form"
+            @busy-change="registrationPreferenceSaving = $event"
+          />
+
+          <button
+            class="search-panel__submit"
+            type="submit"
+            :disabled="registrationPreferenceSaving"
+            :aria-busy="registrationPreferenceSaving"
+          >
             <Search :size="20" aria-hidden="true" />
             {{ t('home.submit') }}
           </button>
@@ -527,7 +541,7 @@ function submitSearch() {
     color: var(--color-form-accent-ink);
   }
 
-  .search-panel__submit:hover {
+  .search-panel__submit:hover:not(:disabled) {
     border-color: var(--color-form-submit-hover);
     background: var(--color-form-submit-hover);
   }

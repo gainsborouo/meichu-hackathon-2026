@@ -10,6 +10,14 @@ import { useAuthStore } from '../../stores/authStore'
 import RecommendationsView from '../RecommendationsView.vue'
 
 const apiMocks = vi.hoisted(() => ({
+  get: vi.fn<(url: string) => Promise<{ data: { registration_campaigns_enabled: boolean } }>>(),
+  patch:
+    vi.fn<
+      (
+        url: string,
+        data: { registration_campaigns_enabled: boolean },
+      ) => Promise<{ data: { registration_campaigns_enabled: boolean } }>
+    >(),
   post: vi.fn<(url: string, data?: unknown) => Promise<unknown>>(),
 }))
 
@@ -137,6 +145,17 @@ function failedResponse(status: number): Response {
   return { ok: false, status, body: null } as Response
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+
+  return { promise, reject, resolve }
+}
+
 const fetchMock = vi.fn<typeof fetch>()
 const mountedWrappers: VueWrapper[] = []
 
@@ -198,6 +217,10 @@ function requestInit(call = 0) {
 
 beforeEach(() => {
   setLocale('zh-TW', false)
+  apiMocks.get.mockReset()
+  apiMocks.get.mockResolvedValue({ data: { registration_campaigns_enabled: false } })
+  apiMocks.patch.mockReset()
+  apiMocks.patch.mockImplementation(async (_url, data) => ({ data }))
   apiMocks.post.mockReset()
   apiMocks.post.mockResolvedValue({})
   fetchMock.mockReset()
@@ -211,6 +234,118 @@ afterEach(() => {
 })
 
 describe('RecommendationsView', () => {
+  it('loads the registration setting alongside the initial recommendation stream', async () => {
+    const preference = deferred<{ data: { registration_campaigns_enabled: boolean } }>()
+    apiMocks.get.mockReturnValueOnce(preference.promise)
+    const { wrapper } = await mountRecommendations()
+
+    expect(apiMocks.get).toHaveBeenCalledWith('/me')
+    expect(fetchMock).toHaveBeenCalledOnce()
+
+    const toggle = wrapper.get<HTMLButtonElement>('#registration-campaigns-toggle')
+    expect(toggle.attributes('role')).toBe('switch')
+    expect(toggle.attributes('disabled')).toBeDefined()
+
+    preference.resolve({ data: { registration_campaigns_enabled: true } })
+    await settle()
+
+    expect(toggle.attributes('aria-checked')).toBe('true')
+    expect(toggle.attributes('disabled')).toBeUndefined()
+  })
+
+  it('patches the registration setting before streaming the current form values', async () => {
+    const update = deferred<{ data: { registration_campaigns_enabled: boolean } }>()
+    apiMocks.patch.mockReturnValueOnce(update.promise)
+    const { router, wrapper } = await mountRecommendations()
+
+    await wrapper.get<HTMLInputElement>('#recommendation-platform').setValue('PChome')
+    await wrapper.get<HTMLInputElement>('#recommendation-price').setValue('1200')
+    await wrapper.get<HTMLInputElement>('#recommendation-category').setValue('鍵盤')
+    await wrapper.get('.registration-switch__track').trigger('click')
+    await settle()
+
+    expect(apiMocks.patch).toHaveBeenCalledWith('/me', {
+      registration_campaigns_enabled: true,
+    })
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(wrapper.get('#registration-campaigns-toggle').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('.query-submit').attributes('disabled')).toBeDefined()
+
+    update.resolve({ data: { registration_campaigns_enabled: true } })
+    await settle()
+
+    expect(router.currentRoute.value.query).toMatchObject({
+      platform: 'PChome',
+      price: '1200',
+      category: '鍵盤',
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(requestInit(1).body as string)).toMatchObject({
+      store_name: 'PChome',
+      price: 1200,
+      product_name: '鍵盤',
+    })
+  })
+
+  it('updates the setting without streaming invalid form values and clears the old result', async () => {
+    const { wrapper } = await mountRecommendations()
+    expect(wrapper.find('[data-testid="best-now"]').exists()).toBe(true)
+
+    await wrapper.get<HTMLInputElement>('#recommendation-platform').setValue('')
+    await wrapper.get('.registration-switch__track').trigger('click')
+    await settle()
+
+    expect(apiMocks.patch).toHaveBeenCalledOnce()
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(wrapper.find('[data-testid="best-now"]').exists()).toBe(false)
+    expect(wrapper.findAll('.query-field__error')).toHaveLength(0)
+  })
+
+  it('restores the toggle and keeps the recommendation when the patch fails', async () => {
+    apiMocks.patch.mockRejectedValueOnce(new Error('network'))
+    const { wrapper } = await mountRecommendations()
+
+    await wrapper.get('.registration-switch__track').trigger('click')
+    await settle()
+
+    expect(wrapper.get('#registration-campaigns-toggle').attributes('aria-checked')).toBe('false')
+    expect(wrapper.find('[data-testid="best-now"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="registration-preference-error"]').text()).toBe(
+      '無法更新登錄活動設定，請稍後再試。',
+    )
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it('disables the toggle when the registration setting cannot be loaded', async () => {
+    apiMocks.get.mockRejectedValueOnce(new Error('network'))
+    const { wrapper } = await mountRecommendations()
+
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(wrapper.get('#registration-campaigns-toggle').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="registration-preference-error"]').text()).toBe(
+      '無法讀取登錄活動設定，請重新整理後再試。',
+    )
+  })
+
+  it('aborts the active stream before patching and keeps the saved setting on stream failure', async () => {
+    const first = controlledStream()
+    fetchMock
+      .mockResolvedValueOnce(okResponse(first.body))
+      .mockResolvedValueOnce(failedResponse(503))
+    const { wrapper } = await mountRecommendations()
+
+    await wrapper.get('.registration-switch__track').trigger('click')
+    await settle()
+
+    expect(first.isCancelled()).toBe(true)
+    expect(apiMocks.patch).toHaveBeenCalledOnce()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('#registration-campaigns-toggle').attributes('aria-checked')).toBe('true')
+    expect(wrapper.get('.state-panel--error [role="alert"]').text()).toBe(
+      '無法取得信用卡推薦，請稍後再試。',
+    )
+  })
+
   it('posts to the SSE endpoint with the Firebase token and mapped body', async () => {
     const { user } = await mountRecommendations()
 
