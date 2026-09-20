@@ -231,7 +231,7 @@ def test_alembic_has_a_single_head_and_bilingual_names_chain() -> None:
     chain, revision = [], script.get_revision(heads[0])
     while revision is not None:
         chain.append(revision.revision)
-        revision = (script.get_revision(revision.down_revision) if revision.down_revision else None)
+        revision = script.get_revision(revision.down_revision) if revision.down_revision else None
     assert chain == ["0008", "0007", "0006", "0005", "0004", "0003", "0002", "0001"]
 
 
@@ -308,9 +308,7 @@ def test_migration_0008_backfills_names_and_removes_retired_banks() -> None:
         with Operations.context(MigrationContext.configure(conn)):
             module.upgrade()
 
-        kept = conn.execute(
-            sa.text("SELECT issuer_en, name_en FROM cards WHERE id = 'kept'")
-        ).one()
+        kept = conn.execute(sa.text("SELECT issuer_en, name_en FROM cards WHERE id = 'kept'")).one()
         assert kept.issuer_en == "CTBC Bank" and kept.name_en == "CTBC LINE Pay card"
         assert conn.scalar(sa.select(sa.func.count()).select_from(cards)) == 1
         assert conn.scalar(sa.select(sa.func.count()).select_from(user_cards)) == 0
