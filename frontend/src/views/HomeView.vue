@@ -6,12 +6,14 @@ import { useRouter } from 'vue-router'
 
 import RegistrationCampaignToggle from '../components/RegistrationCampaignToggle.vue'
 import SiteHeader from '../components/SiteHeader.vue'
+import WebSearchToggle from '../components/WebSearchToggle.vue'
 
 const router = useRouter()
 const { t } = useI18n()
 const location = ref('')
 const amount = ref('')
 const category = ref('')
+const webSearchEnabled = ref(true)
 const locationError = ref(false)
 const amountError = ref(false)
 const categoryError = ref(false)
@@ -69,6 +71,7 @@ function submitSearch() {
       platform: location.value.trim(),
       price: amount.value,
       category: category.value.trim(),
+      webSearch: webSearchEnabled.value ? '1' : '0',
     },
   })
 }
@@ -213,10 +216,13 @@ function submitSearch() {
             </p>
           </div>
 
-          <RegistrationCampaignToggle
-            tone="form"
-            @busy-change="registrationPreferenceSaving = $event"
-          />
+          <div class="search-panel__options">
+            <RegistrationCampaignToggle
+              tone="form"
+              @busy-change="registrationPreferenceSaving = $event"
+            />
+            <WebSearchToggle id="home-web-search" v-model="webSearchEnabled" tone="form" />
+          </div>
 
           <button
             class="search-panel__submit"
@@ -331,6 +337,12 @@ function submitSearch() {
   min-width: 0;
   gap: var(--space-md);
   padding: var(--space-lg);
+}
+
+.search-panel__options {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-md);
 }
 
 .field {
@@ -493,6 +505,7 @@ function submitSearch() {
 
 .search-panel__submit {
   display: inline-flex;
+  width: 100%;
   min-height: var(--input-height);
   align-items: center;
   justify-content: center;
@@ -556,6 +569,10 @@ function submitSearch() {
   .search-panel__header,
   .search-panel__body {
     padding-inline: var(--space-xl);
+  }
+
+  .search-panel__options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

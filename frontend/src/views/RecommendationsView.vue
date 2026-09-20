@@ -19,6 +19,7 @@ import { useRoute, useRouter, type LocationQueryValue } from 'vue-router'
 import { localizedBankName, localizedCardName } from '../cardNames'
 import RegistrationCampaignToggle from '../components/RegistrationCampaignToggle.vue'
 import SiteHeader from '../components/SiteHeader.vue'
+import WebSearchToggle from '../components/WebSearchToggle.vue'
 import type { Locale } from '../i18n'
 import { api } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
@@ -36,6 +37,7 @@ interface RecommendationRequest {
   price: number
   currency: 'TWD'
   locale: Locale
+  web_search_enabled: boolean
 }
 
 interface CardRef {
@@ -144,6 +146,7 @@ const { locale, t } = useI18n()
 const platform = ref('')
 const amount = ref('')
 const category = ref('')
+const webSearchEnabled = ref(true)
 const platformError = ref(false)
 const amountError = ref(false)
 const categoryError = ref(false)
@@ -211,6 +214,8 @@ function syncFormFromRoute() {
   platform.value = queryString(route.query.platform)
   amount.value = queryString(route.query.price)
   category.value = queryString(route.query.category)
+  const webSearch = queryString(route.query.webSearch)
+  webSearchEnabled.value = webSearch === '' || webSearch === '1'
 }
 
 function isValidAmount(value: string) {
@@ -230,11 +235,14 @@ function validateSearch() {
 }
 
 function currentQuery() {
-  return {
+  const query: Record<string, string> = {
     platform: platform.value.trim(),
     price: amount.value,
     category: category.value.trim(),
   }
+
+  query.webSearch = webSearchEnabled.value ? '1' : '0'
+  return query
 }
 
 function routeHasCurrentQuery() {
@@ -242,7 +250,8 @@ function routeHasCurrentQuery() {
   return (
     queryString(route.query.platform) === query.platform &&
     queryString(route.query.price) === query.price &&
-    queryString(route.query.category) === query.category
+    queryString(route.query.category) === query.category &&
+    queryString(route.query.webSearch) === (query.webSearch ?? '')
   )
 }
 
@@ -610,6 +619,7 @@ async function loadRecommendations() {
     price: Number(amount.value),
     currency: 'TWD',
     locale: locale.value as Locale,
+    web_search_enabled: webSearchEnabled.value,
   }
 
   try {
@@ -907,12 +917,15 @@ onBeforeUnmount(() => {
           </p>
         </div>
 
-        <RegistrationCampaignToggle
-          @busy-change="registrationPreferenceSaving = $event"
-          @update-start="beginRegistrationPreferenceUpdate"
-          @updated="rerunSearchAfterPreferenceUpdate"
-          @update-failed="restoreSearchAfterPreferenceFailure"
-        />
+        <div class="query-options">
+          <RegistrationCampaignToggle
+            @busy-change="registrationPreferenceSaving = $event"
+            @update-start="beginRegistrationPreferenceUpdate"
+            @updated="rerunSearchAfterPreferenceUpdate"
+            @update-failed="restoreSearchAfterPreferenceFailure"
+          />
+          <WebSearchToggle id="recommendations-web-search" v-model="webSearchEnabled" />
+        </div>
 
         <button
           class="query-submit"
@@ -1528,6 +1541,13 @@ onBeforeUnmount(() => {
   color: var(--color-error) !important;
 }
 
+.query-options {
+  display: grid;
+  min-width: 0;
+  grid-column: 1 / -1;
+  gap: var(--space-md);
+}
+
 .query-submit:disabled {
   cursor: not-allowed;
   opacity: 0.55;
@@ -1553,6 +1573,11 @@ onBeforeUnmount(() => {
   transition:
     background-color var(--dur-short) var(--ease-out),
     transform var(--dur-micro) var(--ease-out);
+}
+
+.query-submit {
+  width: 100%;
+  grid-column: 1 / -1;
 }
 
 .query-submit:focus-visible,
@@ -2210,16 +2235,16 @@ onBeforeUnmount(() => {
     justify-items: end;
     text-align: right;
   }
+
+  .query-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (min-width: 60rem) {
   .query-form {
-    grid-template-columns: minmax(0, 1fr) minmax(9rem, 0.7fr) minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) minmax(9rem, 0.7fr) minmax(0, 1fr);
     align-items: start;
-  }
-
-  .query-submit {
-    margin-block-start: calc(1.5em + var(--space-xs));
   }
 }
 

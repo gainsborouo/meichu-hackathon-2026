@@ -91,8 +91,19 @@ describe('HomeView', () => {
     expect(wrapper.get('label[for="location"]').text()).toContain('消費地點')
     expect(wrapper.get('label[for="amount"]').text()).toContain('金額（以新臺幣計算）')
     expect(wrapper.get('label[for="category"]').text()).toContain('品項或類別')
-    expect(wrapper.get('label[for="registration-campaigns-toggle"]').text()).toBe('是否登錄活動')
+    expect(wrapper.get('label[for="registration-campaigns-toggle"]').text()).toBe(
+      '是否已登錄信用卡活動',
+    )
     expect(wrapper.get('#registration-campaigns-toggle').attributes('role')).toBe('switch')
+    expect(wrapper.get('#registration-preference-message').text()).toBe('')
+    expect(wrapper.get('label[for="home-web-search"]').text()).toBe('啟用網路搜尋')
+    const webSearchToggle = wrapper.get('#home-web-search')
+    expect(webSearchToggle.attributes()).toMatchObject({
+      role: 'switch',
+      'aria-checked': 'true',
+    })
+    expect(webSearchToggle.attributes('aria-describedby')).toBeUndefined()
+    expect(wrapper.find('#home-web-search-hint').exists()).toBe(false)
     expect(wrapper.get('a[href="/upload-statement"]').text()).toContain('上傳帳單')
     expect(wrapper.text()).not.toContain('店家、品類或用途都可以作為查詢情境。')
     expect(wrapper.get('footer').text()).toBe('© 2026 Meichu Hackathon @ Google')
@@ -119,6 +130,10 @@ describe('HomeView', () => {
 
     expect(wrapper.get('h1').text()).toBe('Which card should you usefor this purchase?')
     expect(wrapper.get('[role="alert"]').text()).toBe('Enter a store or location')
+    expect(wrapper.get('label[for="registration-campaigns-toggle"]').text()).toBe(
+      'Registered for credit card campaigns',
+    )
+    expect(wrapper.get('label[for="home-web-search"]').text()).toBe('Enable web search')
     expect(wrapper.get('button[type="submit"]').text()).toContain('Find the Best Card')
     expect(document.documentElement.lang).toBe('en-US')
     expect(document.title).toBe('SwipeRight')
@@ -265,6 +280,29 @@ describe('HomeView', () => {
         platform: '線上平台',
         price: '10000',
         category: '影音娛樂',
+        webSearch: '1',
+      },
+    })
+  })
+
+  it('adds webSearch=0 to the route when web search is disabled', async () => {
+    const wrapper = mountHome()
+    const toggle = wrapper.get('#home-web-search')
+
+    await wrapper.get<HTMLInputElement>('#location').setValue('線上平台')
+    await wrapper.get<HTMLInputElement>('#amount').setValue('10000')
+    await wrapper.get<HTMLInputElement>('#category').setValue('影音娛樂')
+    await toggle.trigger('click')
+    await wrapper.get('form').trigger('submit')
+
+    expect(toggle.attributes('aria-checked')).toBe('false')
+    expect(routerMocks.push).toHaveBeenCalledExactlyOnceWith({
+      name: 'recommendations',
+      query: {
+        platform: '線上平台',
+        price: '10000',
+        category: '影音娛樂',
+        webSearch: '0',
       },
     })
   })

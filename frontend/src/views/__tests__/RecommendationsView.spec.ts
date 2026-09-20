@@ -246,6 +246,18 @@ describe('RecommendationsView', () => {
     const toggle = wrapper.get<HTMLButtonElement>('#registration-campaigns-toggle')
     expect(toggle.attributes('role')).toBe('switch')
     expect(toggle.attributes('disabled')).toBeDefined()
+    expect(wrapper.get('label[for="registration-campaigns-toggle"]').text()).toBe(
+      '是否已登錄信用卡活動',
+    )
+    expect(wrapper.get('#registration-preference-message').text()).toBe('')
+    expect(wrapper.get('label[for="recommendations-web-search"]').text()).toBe('啟用網路搜尋')
+    const webSearchToggle = wrapper.get('#recommendations-web-search')
+    expect(webSearchToggle.attributes()).toMatchObject({
+      role: 'switch',
+      'aria-checked': 'true',
+    })
+    expect(webSearchToggle.attributes('aria-describedby')).toBeUndefined()
+    expect(wrapper.find('#recommendations-web-search-hint').exists()).toBe(false)
 
     preference.resolve({ data: { registration_campaigns_enabled: true } })
     await settle()
@@ -368,8 +380,41 @@ describe('RecommendationsView', () => {
       price: 7490,
       currency: 'TWD',
       locale: 'zh-TW',
+      web_search_enabled: true,
     })
     expect(JSON.parse(init.body as string)).not.toHaveProperty('include_unowned')
+  })
+
+  it('restores web search from the route and applies changes only after submit', async () => {
+    const { router, wrapper } = await mountRecommendations({
+      query: { ...validQuery, webSearch: '1' },
+    })
+    const toggle = wrapper.get('#recommendations-web-search')
+
+    expect(toggle.attributes('aria-checked')).toBe('true')
+    expect(JSON.parse(requestInit().body as string).web_search_enabled).toBe(true)
+
+    await toggle.trigger('click')
+
+    expect(toggle.attributes('aria-checked')).toBe('false')
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(router.currentRoute.value.query.webSearch).toBe('1')
+
+    await wrapper.get('.query-form').trigger('submit')
+    await settle()
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(router.currentRoute.value.query.webSearch).toBe('0')
+    expect(JSON.parse(requestInit(1).body as string).web_search_enabled).toBe(false)
+  })
+
+  it('treats unsupported webSearch route values as disabled', async () => {
+    const { wrapper } = await mountRecommendations({
+      query: { ...validQuery, webSearch: 'true' },
+    })
+
+    expect(wrapper.get('#recommendations-web-search').attributes('aria-checked')).toBe('false')
+    expect(JSON.parse(requestInit().body as string).web_search_enabled).toBe(false)
   })
 
   it('opens the chat and streams an answer with the bound recommendation context', async () => {
@@ -655,7 +700,9 @@ describe('RecommendationsView', () => {
       .mockImplementationOnce(() => Promise.resolve(okResponse(first.body)))
       .mockImplementationOnce(() => Promise.resolve(okResponse(chunked(fullStream))))
 
-    const { wrapper } = await mountRecommendations()
+    const { wrapper } = await mountRecommendations({
+      query: { ...validQuery, webSearch: '1' },
+    })
     expect(fetchMock).toHaveBeenCalledOnce()
 
     setLocale('en-US')
@@ -663,7 +710,10 @@ describe('RecommendationsView', () => {
 
     expect(first.isCancelled()).toBe(true)
     expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(JSON.parse(requestInit(1).body as string)).toMatchObject({ locale: 'en-US' })
+    expect(JSON.parse(requestInit(1).body as string)).toMatchObject({
+      locale: 'en-US',
+      web_search_enabled: true,
+    })
     expect(wrapper.get('#ranking-title').text()).toBe('Best Card Right Now')
     expect(wrapper.get('[data-testid="best-now"]').text()).toContain('NT$224.70')
     expect(wrapper.get('[data-testid="best-now"]').text()).toContain('E.SUN Bank')
