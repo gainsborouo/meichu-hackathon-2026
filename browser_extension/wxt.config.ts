@@ -19,8 +19,11 @@ export default defineConfig({
     firefoxArgs: process.env.SNAPSHOT_E2E === '1' ? ['--remote-debugging-port', '9226'] : undefined,
   },
   manifest: ({ browser }) => ({
-    name: '刷哪張｜信用卡回饋助手',
-    description: '在結帳頁依你持有的信用卡顯示回饋推薦。',
+    // The manifest is static, so its name and description come from _locales
+    // rather than lib/i18n.ts. default_locale must be set for these to resolve.
+    name: '__MSG_extName__',
+    description: '__MSG_extDescription__',
+    default_locale: 'zh_TW',
     icons: {
       16: 'icon-16.png',
       32: 'icon-32.png',
@@ -33,7 +36,9 @@ export default defineConfig({
         32: 'icon-32.png',
       },
     },
-    permissions: ['identity'],
+    // storage: remembers the language the user picked in the popup, so a
+    // checkout page renders in it regardless of the browser's own setting.
+    permissions: ['identity', 'storage'],
     // Firefox MV3 applies a default extension_pages CSP whose connect-src does
     // not include http:, so a plain-http backend (local development) is blocked
     // before the request leaves the extension -- Chrome allows it. Declaring the

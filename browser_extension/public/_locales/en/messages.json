@@ -1,0 +1,10 @@
+{
+  "extName": {
+    "message": "Swipe Right",
+    "description": "Extension name shown in the browser's extension list and toolbar."
+  },
+  "extDescription": {
+    "message": "Shows which of your credit cards earns the most at checkout.",
+    "description": "Extension description shown in the browser's extension list."
+  }
+}

@@ -6,6 +6,20 @@ import {
   signInWithRedirect,
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
 
+// Firebase sign-in alone grants no Calendar access, so the consent screen asks for
+// it here. This yields an access token the user has consented to; the backend's
+// POST /me/calendar/connect wants an authorization CODE to exchange for a refresh
+// token, which this implicit flow does not produce -- so requesting the scope
+// makes the consent happen, and connecting the calendar still needs its own code
+// flow. See browser_extension/README.md.
+const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+
+function googleProvider() {
+  const provider = new GoogleAuthProvider();
+  provider.addScope(CALENDAR_SCOPE);
+  return provider;
+}
+
 const query = new URLSearchParams(location.search);
 const redirectUri = query.get('redirect_uri');
 const state = query.get('state');
@@ -53,7 +67,7 @@ function showError(message) {
 
 if (!redirectUri || !state || !isExtensionRedirect(redirectUri)) {
   button.disabled = true;
-  errorNode.textContent = '無效的擴充功能登入請求。';
+  errorNode.textContent = 'Invalid extension sign-in request.';
 } else {
   // signInWithRedirect navigates this same window to Google and back, because a
   // nested popup opened inside launchWebAuthFlow's window is commonly blocked.
@@ -73,16 +87,16 @@ if (!redirectUri || !state || !isExtensionRedirect(redirectUri)) {
       button.disabled = false;
     }
   } catch {
-    showError('Google 登入失敗，請稍後再試。');
+    showError('Google sign-in failed. Please try again shortly.');
   }
 
   button.addEventListener('click', async () => {
     button.disabled = true;
     errorNode.textContent = '';
     try {
-      await signInWithRedirect(auth ?? (await createAuth()), new GoogleAuthProvider());
+      await signInWithRedirect(auth ?? (await createAuth()), googleProvider());
     } catch {
-      showError('Google 登入失敗，請稍後再試。');
+      showError('Google sign-in failed. Please try again shortly.');
     }
   });
 }

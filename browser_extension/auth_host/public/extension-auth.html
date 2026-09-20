@@ -1,19 +1,27 @@
 <!doctype html>
-<html lang="zh-Hant">
+<html lang="en">
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>登入刷哪張</title>
+    <title>Sign in to Swipe Right</title>
     <link rel="stylesheet" href="/extension-auth.css">
   </head>
   <body>
     <main>
-      <div class="mark" aria-hidden="true">卡</div>
-      <h1>登入刷哪張</h1>
-      <p>使用 Google 帳戶登入後，擴充功能才能取得你的信用卡推薦。</p>
-      <button id="login" type="button">使用 Google 登入</button>
+      <!-- The extension's own icon, inlined: this page is served by Firebase
+           Hosting and has no access to the extension's bundled assets. -->
+      <svg class="mark" viewBox="0 0 128 128" aria-hidden="true">
+        <rect width="128" height="128" rx="28" fill="#1b5946"/>
+        <path d="M26 38a10 10 0 0 1 10-10h56a10 10 0 0 1 10 10v52a10 10 0 0 1-10 10H36a10 10 0 0 1-10-10V38Z" fill="#fff"/>
+        <path d="M26 45h76v16H26V45Z" fill="#d9eee5"/>
+        <path d="M39 78h24" stroke="#1b5946" stroke-width="8" stroke-linecap="round"/>
+        <circle cx="86" cy="80" r="9" fill="#efbd4c"/>
+      </svg>
+      <h1>Sign in to Swipe Right</h1>
+      <p>Sign in with your Google account so the extension can recommend a credit card at checkout.</p>
+      <button id="login" type="button">Sign in with Google</button>
       <p id="error" class="error" role="alert"></p>
-      <small>登入結果只會傳回已開啟此頁的瀏覽器擴充功能。</small>
+      <small>The result is returned only to the browser extension that opened this page.</small>
     </main>
     <script type="module" src="/extension-auth.js"></script>
   </body>

@@ -1,16 +1,18 @@
 import { RecommendationError } from './types';
 import type {
   CheckoutRequest,
+  SearchStage,
   FailureReason,
   Inspection,
   PanelState,
   Recommendation,
+  WaitSuggestion,
 } from './types';
 import { diagnostic } from './diagnostics';
 
 interface Options {
   inspect: () => Inspection;
-  request: (request: CheckoutRequest) => Promise<Recommendation>;
+  request: (request: CheckoutRequest) => Promise<{ best: Recommendation; wait: WaitSuggestion | null }>;
   render: (state: PanelState) => void;
   createId?: () => string;
 }
@@ -25,12 +27,22 @@ export function createController(options: Options) {
   let revision = 0;
   let disposed = false;
   let inspectionKey = '';
+  // The request whose progress the panel is currently showing.
+  let currentRequestId = '';
   // Retain results and in-flight work across temporary DOM loss in this checkout.
   // No persistent storage; leaving checkout clears the session.
-  const requests = new Map<string, Promise<Recommendation>>();
+  const requests = new Map<string, Promise<{ best: Recommendation; wait: WaitSuggestion | null }>>();
   const createId = options.createId ?? (() => crypto.randomUUID());
+  // pageLocale is part of the identity, not incidental: the backend writes
+  // `reason` and `cap_description` in that language, so the same purchase in
+  // another language is a different answer and must not be served from cache.
   const fingerprint = (value: Inspection) => value.status === 'ready'
-    ? JSON.stringify([value.context.platform, value.context.product, value.context.payable]) : '';
+    ? JSON.stringify([
+      value.context.platform,
+      value.context.product,
+      value.context.payable,
+      value.context.pageLocale,
+    ]) : '';
 
   async function recommend(expected: number, force: boolean) {
     if (disposed || expected !== revision) return;
@@ -43,6 +55,7 @@ export function createController(options: Options) {
       let pending = requests.get(key);
       if (!pending) {
         const requestId = createId();
+        currentRequestId = requestId;
         diagnostic('api', 'started');
         // requestId correlation happens in lib/api.ts, which rejects a reply
         // that does not match the request it sent.
@@ -59,7 +72,7 @@ export function createController(options: Options) {
       if (disposed || expected !== revision) return;
       const latest = options.inspect();
       if (latest.status !== 'ready' || fingerprint(latest) !== key) { refresh(); return; }
-      options.render({ status: 'success', context, result });
+      options.render({ status: 'success', context, result: result.best, wait: result.wait });
     } catch (error) {
       diagnostic('api', 'failed');
       if (!disposed && expected === revision) {
@@ -92,6 +105,18 @@ export function createController(options: Options) {
   return {
     refresh,
     retry: () => refresh(true),
+    /**
+     * Updates the loading state with the backend's current stage.
+     *
+     * Ignored unless a request for `requestId` is the one being shown, so a late
+     * update from a superseded request cannot relabel the current one.
+     */
+    reportStage(requestId: string, stage: SearchStage) {
+      if (disposed || requestId !== currentRequestId) return;
+      const snapshot = options.inspect();
+      if (snapshot.status !== 'ready' || fingerprint(snapshot) !== currentKey) return;
+      options.render({ status: 'loading', context: snapshot.context, stage });
+    },
     dispose: () => { disposed = true; revision += 1; clearTimeout(timer); requests.clear(); options.render({ status: 'hidden' }); },
   };
 }

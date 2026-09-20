@@ -1,11 +1,20 @@
 import { createApp, h, shallowRef } from 'vue';
+import { browser } from 'wxt/browser';
 import RecommendationPanel from '../components/RecommendationPanel.vue';
 import panelCss from '../components/panel.css?inline';
 import { inspectAdapter, type CheckoutAdapter } from '../adapters';
-import { requestRecommendation } from './api';
+import { createReminder, requestRecommendation } from './api';
 import { createController } from './controller';
 import { diagnostic } from './diagnostics';
-import type { CheckoutRequest, PanelState } from './types';
+import { currentLocale, isLocale, pageLocale, rememberPageLocale, resolveLocale } from './i18n';
+import type { Locale } from './i18n';
+import type {
+  CheckoutRequest,
+  PanelState,
+  ReminderState,
+  SearchStage,
+  WaitSuggestion,
+} from './types';
 
 export function mountRecommendation(
   resolveAdapter: () => CheckoutAdapter | null,
@@ -20,24 +29,86 @@ export function mountRecommendation(
   const root = document.createElement('div');
   shadow.append(style, root);
   const state = shallowRef<PanelState>({ status: 'hidden' });
+  // The page's own language is the default: someone reading a Chinese checkout
+  // wants Chinese advice even if their browser is English. An explicit choice in
+  // the popup overrides it.
+  // Resolved here, in the content script, where both the page's `lang` and the
+  // page's `navigator` are available. This exact value is what travels to the
+  // backend (see inspectAdapter), so its prose and this copy cannot disagree.
+  const fallbackLocale = pageLocale() ?? resolveLocale();
+  const locale = shallowRef<Locale>(fallbackLocale);
+  // The popup has no page to follow, so record this one for it. Only a language the
+  // page actually declared: our own navigator fallback is already what the popup
+  // would use anyway, and storing it would make a guess look like a fact.
+  const declared = pageLocale();
+  if (declared) void rememberPageLocale(declared);
   let adapter = resolveAdapter();
   let mountedAfter: Element | null = null;
   let observed: Element[] = [];
   let scheduled: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
   const controller = createController({
-    inspect: () => inspectAdapter(adapter),
+    // `locale.value` rather than the page default: an explicit choice in the popup
+    // must reach the backend too, or the reason would come back in the page's
+    // language while the panel renders in the chosen one.
+    inspect: () => inspectAdapter(adapter, locale.value),
     request: request => { onRequest?.(request); return requestRecommendation(request); },
     render: next => {
+      // A new pick is a new decision, so a previous reminder result must not
+      // linger beside it.
+      if (next.status !== state.value.status || next.status === 'loading') {
+        reminder.value = { status: 'idle' };
+      }
       state.value = next;
       if (next.status === 'hidden') host.remove();
       else if (mountedAfter?.isConnected && !host.isConnected) mountedAfter.after(host);
     },
   });
+  // Owned here, not in the panel: this layer makes the request, so it holds the
+  // result. Reset whenever a new recommendation arrives.
+  const reminder = shallowRef<ReminderState>({ status: 'idle' });
+
+  async function onRemind(wait: WaitSuggestion) {
+    reminder.value = { status: 'saving' };
+    reminder.value = await createReminder(wait);
+  }
+
   const app = createApp({ render: () => h(RecommendationPanel, {
-    state: state.value, onRetry: controller.retry,
+    state: state.value,
+    locale: locale.value,
+    reminder: reminder.value,
+    onRetry: controller.retry,
+    onRemind,
   }) });
   app.mount(root);
+
+  // A shown card mixes our copy with prose the backend wrote in the language the
+  // request asked for, so changing language must refetch rather than re-render --
+  // otherwise the card keeps last request's `reason` beside freshly translated
+  // labels, which is the mismatch this exists to prevent.
+  function applyLocale(next: Locale) {
+    if (next === locale.value) return;
+    locale.value = next;
+    // Only states that carry backend prose need new data; the rest just re-render.
+    if (state.value.status === 'success' || state.value.status === 'loading') controller.retry();
+  }
+  void currentLocale(fallbackLocale).then(applyLocale);
+
+  function onStorageChange(changes: Record<string, { newValue?: unknown }>) {
+    if (!('locale' in changes)) return;
+    const next = changes.locale?.newValue;
+    applyLocale(isLocale(next) ? next : fallbackLocale);
+  }
+  browser.storage.local.onChanged.addListener(onStorageChange);
+
+  // Progress pushed by the background for the request this page started.
+  function onRuntimeMessage(message: unknown) {
+    const data = message as { type?: string; requestId?: string; stage?: string } | null;
+    if (data?.type !== 'recommend:stage') return;
+    if (typeof data.requestId !== 'string' || typeof data.stage !== 'string') return;
+    controller.reportStage(data.requestId, data.stage as SearchStage);
+  }
+  browser.runtime.onMessage.addListener(onRuntimeMessage);
 
   function synchronize() {
     if (disposed) return;
@@ -85,6 +156,8 @@ export function mountRecommendation(
     retry: controller.retry,
     dispose() {
       disposed = true;
+      browser.storage.local.onChanged.removeListener(onStorageChange);
+      browser.runtime.onMessage.removeListener(onRuntimeMessage);
       observer.disconnect();
       clearTimeout(scheduled);
       clearInterval(timer);

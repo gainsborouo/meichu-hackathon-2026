@@ -64,9 +64,30 @@ export async function signInWithGoogle(): Promise<AuthUser> {
 
   const credential = GoogleAuthProvider.credential(idToken, accessToken);
   const resultUser = await signInWithCredential(auth, credential);
+  // Keep the Google access token: it carries the calendar.events scope the consent
+  // screen asked for, and Firebase does not hand it back later -- signInWithCredential
+  // returns it once and `auth.currentUser` has no trace of it. Held in memory only,
+  // never in storage: it is a bearer credential with about an hour of life, and a
+  // service worker restart losing it is the correct outcome.
+  googleAccessToken = accessToken;
   return publicUser(resultUser.user);
 }
 
+// Set at sign-in, cleared at sign-out. Null means "we never had one, or it is gone".
+let googleAccessToken: string | null = null;
+
+/**
+ * The Google access token from sign-in, if we still hold one.
+ *
+ * Scoped for Calendar, so the backend can use it on the user's behalf. Null after a
+ * background restart even while the Firebase session is still valid, because the
+ * token lives only in memory -- callers must treat absence as ordinary.
+ */
+export function getGoogleAccessToken(): string | null {
+  return googleAccessToken;
+}
+
 export async function signOutCurrentUser(): Promise<void> {
+  googleAccessToken = null;
   await signOut(auth);
 }
