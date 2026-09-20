@@ -20,20 +20,61 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import CurrentUser, SessionDep
-from app.schemas.recommendations import RecommendationRequest
+from app.schemas.recommendations import RecommendationChatRequest, RecommendationRequest
 from app.services import live_refresh
 from app.services import purchase_recommendation as service
 from app.services.recommendation_agent import get_recommendation_agent
+from app.services.recommendation_chat import get_recommendation_chat_agent
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/recommendations")
 
 AgentDep = Annotated[service.RecommendationAgent, Depends(get_recommendation_agent)]
+ChatAgentDep = Annotated[Any, Depends(get_recommendation_chat_agent)]
 LookupDep = Annotated[live_refresh.LiveLookup, Depends(live_refresh.get_live_lookup)]
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+@router.post("/chat/stream")
+async def stream_recommendation_chat(
+    body: RecommendationChatRequest,
+    user: CurrentUser,
+    agent: ChatAgentDep,
+) -> StreamingResponse:
+    """Stream a follow-up answer about an already displayed recommendation.
+
+    It authenticates the caller but performs no database writes, candidate recomputation,
+    live lookup, web search, or Calendar action.
+    """
+    del user  # Identity is deliberately not sent to the model.
+    payload = body.model_dump(mode="json")
+
+    async def events() -> AsyncIterator[str]:
+        sent = False
+        try:
+            async for text in agent(payload):
+                sent = True
+                yield _sse("delta", {"text": text})
+        except service.RecommendationError as exc:
+            yield _sse("error", {"message": str(exc)})
+            return
+        except Exception:
+            logger.exception("recommendation follow-up chat failed")
+            yield _sse("error", {"message": "Chat failed."})
+            return
+        if not sent:
+            yield _sse("error", {"message": "Chat returned no answer."})
+            return
+        yield _sse("done", {})
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/stream")

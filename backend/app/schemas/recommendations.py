@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RecommendationRequest(BaseModel):
@@ -69,3 +69,27 @@ class RecommendationResponse(BaseModel):
     best_now: BestNow | None
     wait_suggestion: WaitSuggestion | None
     explanation: str | None = None
+
+
+class RecommendationChatMessage(BaseModel):
+    """A short browser-only follow-up conversation turn."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=2000)
+
+
+class RecommendationChatRequest(BaseModel):
+    """Context supplied by the recommendation page for a follow-up answer.
+
+    The context is validated but still treated as untrusted text by the model. It is
+    never used to select cards, write data, invoke tools, or make external requests.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    purchase: RecommendationRequest
+    recommendation: RecommendationResponse
+    messages: list[RecommendationChatMessage] = Field(default_factory=list, max_length=12)
+    question: str = Field(min_length=1, max_length=2000)
