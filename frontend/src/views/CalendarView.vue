@@ -36,7 +36,8 @@ function describe(err: unknown): string {
   if (err instanceof AxiosError) {
     const detail = err.response?.data?.detail
     const status = err.response?.status
-    if (detail) return `HTTP ${status}: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`
+    if (detail)
+      return `HTTP ${status}: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`
     return err.message
   }
   return err instanceof Error ? err.message : String(err)
@@ -124,13 +125,17 @@ function formatDateTime(value: string): string {
 
 // Firebase resolves the session after mount, so wait for it rather than
 // firing a request that would just 401.
-watch(signedIn, (isIn) => {
-  if (isIn) handleRefresh()
-  else {
-    connected.value = false
-    events.value = []
-  }
-}, { immediate: true })
+watch(
+  signedIn,
+  (isIn) => {
+    if (isIn) handleRefresh()
+    else {
+      connected.value = false
+      events.value = []
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -139,9 +144,7 @@ watch(signedIn, (isIn) => {
   <main class="page">
     <header class="page__head">
       <h1>行事曆連結測試</h1>
-      <p class="page__lede">
-        測試 <code>/me/calendar</code> 系列端點：授權、建立提醒、刪除。
-      </p>
+      <p class="page__lede">測試 <code>/me/calendar</code> 系列端點：授權、建立提醒、刪除。</p>
     </header>
 
     <p v-if="clientIdMissing" class="banner banner--warn">
@@ -202,7 +205,9 @@ watch(signedIn, (isIn) => {
       <p v-if="error" class="banner banner--error" role="alert">{{ error }}</p>
 
       <section v-if="connected" class="events">
-        <h2>已建立的事件 <span class="events__count">{{ events.length }}</span></h2>
+        <h2>
+          已建立的事件 <span class="events__count">{{ events.length }}</span>
+        </h2>
         <p v-if="!events.length" class="events__empty">還沒有事件。</p>
         <ul v-else class="events__list">
           <li v-for="event in events" :key="event.id" class="event">

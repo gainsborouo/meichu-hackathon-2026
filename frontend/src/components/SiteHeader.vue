@@ -5,7 +5,6 @@ import {
   CircleUserRound,
   Languages,
   CalendarCheck,
-  CreditCard,
   FileUp,
   LogOut,
   WalletCards,
