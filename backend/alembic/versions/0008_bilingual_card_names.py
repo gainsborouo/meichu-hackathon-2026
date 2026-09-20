@@ -1,7 +1,7 @@
 """新增雙語卡名，並移除第一銀行與遠東商銀卡片。
 
 Revision ID: 0008
-Revises: 0006
+Revises: 0007
 """
 
 import csv
@@ -16,7 +16,7 @@ down_revision = "0007"
 branch_labels = None
 depends_on = None
 
-CARD_NAMES_PATH = Path(__file__).resolve().parents[1] / "data" / "0007_card_names.csv"
+CARD_NAMES_PATH = Path(__file__).resolve().parents[1] / "data" / "0008_card_names.csv"
 CARD_NAME_FIELDS = (
     "artwork_id",
     "bank_name",
@@ -32,14 +32,14 @@ def _load_card_names() -> list[dict[str, str | None]]:
     with CARD_NAMES_PATH.open(encoding="utf-8", newline="") as source:
         reader = csv.DictReader(source)
         if tuple(reader.fieldnames or ()) != CARD_NAME_FIELDS:
-            raise RuntimeError("0007 card names have an invalid header")
+            raise RuntimeError("0008 card names have an invalid header")
 
         rows: list[dict[str, str | None]] = []
         for line, row in enumerate(reader, 2):
             if None in row or any(value is None for value in row.values()):
-                raise RuntimeError(f"0007 card names line {line} is malformed")
+                raise RuntimeError(f"0008 card names line {line} is malformed")
             if not row["bank_name"] or not row["name"] or not row["issuer_en"]:
-                raise RuntimeError(f"0007 card names line {line} is missing required data")
+                raise RuntimeError(f"0008 card names line {line} is missing required data")
             rows.append(
                 {
                     "artwork_id": row["artwork_id"] or None,
@@ -62,10 +62,7 @@ def _card_name_update_sql(row: dict[str, str | None]) -> str:
     if row["artwork_id"] is not None:
         match = f"artwork_id = {_literal(row['artwork_id'])}"
     else:
-        match = (
-            f"bank_name = {_literal(row['bank_name'])} "
-            f"AND name = {_literal(row['name'])}"
-        )
+        match = f"bank_name = {_literal(row['bank_name'])} AND name = {_literal(row['name'])}"
     return (
         "UPDATE cards SET "
         f"issuer_en = {_literal(row['issuer_en'])}, "

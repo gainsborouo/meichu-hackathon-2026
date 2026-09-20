@@ -33,7 +33,7 @@ DEFAULT_CARD_CATALOG_PATH = (
     Path(__file__).resolve().parents[2] / "alembic" / "data" / "0003_card_catalog.csv"
 )
 DEFAULT_CARD_NAMES_PATH = (
-    Path(__file__).resolve().parents[2] / "alembic" / "data" / "0007_card_names.csv"
+    Path(__file__).resolve().parents[2] / "alembic" / "data" / "0008_card_names.csv"
 )
 RETIRED_BANK_NAMES = frozenset({"第一銀行", "遠東商銀"})
 CARD_UUID_NAMESPACE = uuid.UUID("f8cbb032-9362-5de4-b3b1-3f234b1f199e")
