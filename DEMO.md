@@ -114,6 +114,37 @@ Expected result as of 2026-09-20:
 
 The API and frontend currently expose a **calendar draft only**. They do not create a Google Calendar event and the frontend has no “Add to Calendar” button yet. The offer also requires advance registration and a qualifying JPY 10,000 spend; the TWD value above is only used to exercise the current recommendation threshold.
 
+## 4. No registration: E.SUN U Bear Card on Shopee
+
+In **Card Management**, add only **E.SUN U Bear Card** (`玉山 U Bear 信用卡`). Remove the cards used in the prior scenarios, then keep the no-registration preference enabled.
+
+```fish
+curl -s -X PATCH "$API/me" \
+  -H "$AUTH" \
+  -H "Content-Type: application/json" \
+  -d '{"registration_campaigns_enabled":false}' | jq
+
+curl -sN -X POST "$API/recommendations/stream" \
+  -H "$AUTH" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "store_name": "蝦皮",
+    "product_name": "藍牙耳機",
+    "price": 2000,
+    "currency": "TWD"
+  }'
+```
+
+Expected result as of 2026-09-20:
+
+- `mode` is `no_registration`.
+- `best_now.card.name` is `U Bear 信用卡`.
+- The selected offer is `掃貨熊給力 網路消費最高享3%現金回饋`.
+- `rate_display` is `3%` and `estimated_reward_twd` is `60` (the monthly extra-reward cap is NT$150).
+- `requires_registration` is `false`.
+
+The actual U Bear online-shopping bonus requires paperless billing. This scenario tests the recommendation flow; the user must still meet the bank's real eligibility conditions.
+
 ## Expected safety properties in every scenario
 
 - The recommendation must name a card held by the test account.
